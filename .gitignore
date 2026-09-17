@@ -1,0 +1,30 @@
+node_modules/
+dist/
+build/
+coverage/
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# runtime data (sqlite db, logs)
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
+data/*.sqlite-shm
+*.log
+logs/
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# npm
+npm-debug.log*
+.npm
+
+# test/coverage artifacts
+.vitest-cache/

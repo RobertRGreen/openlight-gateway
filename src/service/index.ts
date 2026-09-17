@@ -1,0 +1,101 @@
+import type { Logger } from 'pino';
+import { loadConfig, type GatewayConfig } from '../config/index.js';
+import { GatewayStore } from '../persistence/index.js';
+import { createLogger } from '../security/logger.js';
+import { TokenService } from '../security/index.js';
+import { DomainBus } from '../core/events.js';
+import { AdapterRuntime } from '../adapters/runtime.js';
+import { MockAdapter } from '../adapters/mock/index.js';
+import { DeviceRegistry } from '../core/devices/index.js';
+import { OperationService } from '../core/operations/index.js';
+import { RoomService } from '../core/rooms/index.js';
+import { GroupService } from '../core/groups/index.js';
+import { SceneService } from '../core/scenes/index.js';
+import { EffectService } from '../core/effects/index.js';
+import { MdnsAdvertiser } from '../discovery/mdns-advertiser.js';
+
+export interface CompositionOptions {
+  config?: GatewayConfig;
+  logger?: Logger;
+  deferReady?: boolean;
+}
+
+/** The API layer owns its listener and can import these services independently. */
+export async function createGateway(options: CompositionOptions = {}) {
+  const config = options.config ?? loadConfig();
+  const logger = options.logger ?? createLogger(config.logLevel);
+  const store = new GatewayStore(config.databasePath);
+  const cleanup: { order: number; run: () => void | Promise<void> }[] = [
+    { order: 100, run: () => store.close() },
+  ];
+  let notifyStopping = () => {};
+  let shutdownStarted = false;
+  const beginShutdown = () => { if (!shutdownStarted) { shutdownStarted = true; notifyStopping(); } };
+  let stopping: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    stopping ??= (async () => {
+      beginShutdown();
+      const failures: unknown[] = [];
+      for (const action of cleanup.sort((a, b) => a.order - b.order)) {
+        try { await action.run(); } catch (error) { failures.push(error); }
+      }
+      if (failures.length) throw new AggregateError(failures, 'Core cleanup failed');
+    })();
+    return stopping;
+  };
+
+  try {
+    const interruptedDevices = store.recoverOperations();
+    const bus = new DomainBus(store.gatewayId, () => {
+      logger.error({ errorCategory: 'event_listener' }, 'Domain event listener failed');
+    });
+    notifyStopping = () => { bus.publish('gateway.stopping', { type: 'gateway', id: store.gatewayId }, { reason: 'shutdown' }); };
+    const runtime = new AdapterRuntime(bus, logger, { timeoutMs: config.adapterTimeoutMs });
+    cleanup.push({ order: 10, run: () => runtime.close() });
+    const registry = new DeviceRegistry(store, runtime, bus);
+    cleanup.push({ order: 20, run: () => registry.close() });
+    const operations = new OperationService(store, registry, runtime, bus, logger);
+    cleanup.push({ order: 30, run: () => operations.drain() });
+    const rooms = new RoomService(store, registry, bus);
+    cleanup.push({ order: 40, run: () => rooms.close() });
+    const groups = new GroupService(store, registry, bus);
+    cleanup.push({ order: 40, run: () => groups.close() });
+    operations.setGroupResolver(id => groups.get(id).deviceIds);
+    const scenes = new SceneService(store, groups, operations, bus);
+    const effects = new EffectService(store, registry, runtime, operations, bus);
+    cleanup.push({ order: 0, run: () => effects.close() });
+    const tokens = new TokenService(store, config.apiTokenSalt);
+    const mdns = new MdnsAdvertiser({
+      gatewayName: config.gatewayName, port: config.port,
+      protocol: config.tlsMode === 'disabled' ? 'http' : 'https', apiVersion: 'v1',
+    }, logger);
+    cleanup.push({ order: 50, run: () => mdns.stop() });
+    const mock = new MockAdapter({ latencyMs: config.mockLatencyMs });
+    runtime.register(mock);
+
+    await runtime.connect(mock.id);
+    await registry.discover(mock.id);
+    // Discovery has already reconciled registered devices. Explicitly refresh any
+    // interrupted targets so stale desired intent is never replayed on startup.
+    await Promise.all(interruptedDevices.map(async id => {
+      const device = registry.list().find(item => item.id === id);
+      if (device && runtime.list().some(adapter => adapter.id === device.adapter)) await registry.refresh(id);
+    }));
+    registry.startPolling();
+    let ready = false;
+    const markReady = () => {
+      if (ready || shutdownStarted) return;
+      if (config.mdnsEnabled) mdns.start();
+      ready = true;
+      bus.publish('gateway.started', { type: 'gateway', id: store.gatewayId }, { reason: 'startup' });
+    };
+    if (!options.deferReady) markReady();
+    return { config, logger, store, bus, runtime, registry, operations, rooms, groups, scenes, effects, tokens, mdns, stop,
+      markReady, beginShutdown, isStopping: () => shutdownStarted, isReady: () => ready && !shutdownStarted };
+  } catch (error) {
+    await stop().catch(() => { logger.error({ errorCategory: 'cleanup' }, 'Startup cleanup failed'); });
+    throw error;
+  }
+}
+
+export type Gateway = Awaited<ReturnType<typeof createGateway>>;

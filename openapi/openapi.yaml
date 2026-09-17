@@ -1,0 +1,3643 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OpenLight Gateway API
+  version: 1.0.0
+  description: Proposed v1 contract pending independent review. Local-first normalized
+    lighting API. See docs/API.md for semantic validation, ordering, idempotency,
+    authentication and reconciliation.
+servers:
+- url: /api/v1
+security:
+- bearerAuth: []
+paths:
+  /health:
+    get:
+      operationId: get_health
+      summary: Read gateway readiness
+      responses:
+        '200':
+          description: Read gateway readiness
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          description: Gateway not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /devices:
+    get:
+      operationId: get_devices
+      summary: List devices
+      responses:
+        '200':
+          description: List devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+  /devices/{id}:
+    get:
+      operationId: get_devices_id
+      summary: Read device
+      responses:
+        '200':
+          description: Read device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: &id001
+          type: string
+          format: uuid
+    patch:
+      operationId: patch_devices_id
+      summary: Update device metadata
+      responses:
+        '200':
+          description: Update device metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevicePatch'
+  /devices/{id}/state:
+    get:
+      operationId: get_devices_id_state
+      summary: Read observed device snapshot
+      responses:
+        '200':
+          description: Read observed device snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StateSnapshot'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /devices/{id}/commands:
+    post:
+      operationId: post_devices_id_commands
+      summary: Admit device command
+      responses:
+        '202':
+          description: Admit device command
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Command'
+  /rooms:
+    get:
+      operationId: get_rooms
+      summary: List rooms
+      responses:
+        '200':
+          description: List rooms
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Room'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+    post:
+      operationId: post_rooms
+      summary: Create room
+      responses:
+        '201':
+          description: Create room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomCreate'
+  /rooms/{id}:
+    get:
+      operationId: get_rooms_id
+      summary: Read room
+      responses:
+        '200':
+          description: Read room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+    patch:
+      operationId: patch_rooms_id
+      summary: Update room
+      responses:
+        '200':
+          description: Update room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomPatch'
+    delete:
+      operationId: delete_rooms_id
+      summary: Delete room
+      responses:
+        '204':
+          description: Delete room
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+  /groups:
+    get:
+      operationId: get_groups
+      summary: List groups
+      responses:
+        '200':
+          description: List groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Group'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+    post:
+      operationId: post_groups
+      summary: Create group
+      responses:
+        '201':
+          description: Create group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupCreate'
+  /groups/{id}:
+    get:
+      operationId: get_groups_id
+      summary: Read group
+      responses:
+        '200':
+          description: Read group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+    patch:
+      operationId: patch_groups_id
+      summary: Update group
+      responses:
+        '200':
+          description: Update group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupPatch'
+    delete:
+      operationId: delete_groups_id
+      summary: Delete group
+      responses:
+        '204':
+          description: Delete group
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+  /scenes:
+    get:
+      operationId: get_scenes
+      summary: List scenes
+      responses:
+        '200':
+          description: List scenes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Scene'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+    post:
+      operationId: post_scenes
+      summary: Create scene
+      responses:
+        '201':
+          description: Create scene
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scene'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SceneCreate'
+  /scenes/{id}:
+    get:
+      operationId: get_scenes_id
+      summary: Read scene
+      responses:
+        '200':
+          description: Read scene
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scene'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+    patch:
+      operationId: patch_scenes_id
+      summary: Update scene
+      responses:
+        '200':
+          description: Update scene
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scene'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenePatch'
+    delete:
+      operationId: delete_scenes_id
+      summary: Delete scene
+      responses:
+        '204':
+          description: Delete scene
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current resource detail.
+  /rooms/{id}/state:
+    get:
+      operationId: get_rooms_id_state
+      summary: Read aggregate observed state
+      responses:
+        '200':
+          description: Read aggregate observed state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateState'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /groups/{id}/state:
+    get:
+      operationId: get_groups_id_state
+      summary: Read aggregate observed state
+      responses:
+        '200':
+          description: Read aggregate observed state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateState'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /groups/{id}/commands:
+    post:
+      operationId: post_groups_id_commands
+      summary: Admit group command with explicit per-device outcomes
+      responses:
+        '202':
+          description: Admit group command with explicit per-device outcomes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Command'
+  /scenes/{id}/activate:
+    post:
+      operationId: post_scenes_id_activate
+      summary: Activate scene
+      responses:
+        '202':
+          description: Activate scene
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SceneActivate'
+  /effects:
+    get:
+      operationId: get_effects
+      summary: List effect catalog
+      responses:
+        '200':
+          description: List effect catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Effect'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+  /effects/{id}:
+    get:
+      operationId: get_effects_id
+      summary: Read effect definition
+      responses:
+        '200':
+          description: Read effect definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Effect'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /effects/{id}/start:
+    post:
+      operationId: post_effects_id_start
+      summary: Start effect execution
+      responses:
+        '202':
+          description: Start effect execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EffectStart'
+  /effect-runs:
+    get:
+      operationId: get_effect_runs
+      summary: List effect executions
+      responses:
+        '200':
+          description: List effect executions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EffectRun'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+  /effect-runs/{id}:
+    get:
+      operationId: get_effect_runs_id
+      summary: Read effect execution
+      responses:
+        '200':
+          description: Read effect execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectRun'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /effect-runs/{id}/stop:
+    post:
+      operationId: post_effect_runs_id_stop
+      summary: Stop effect execution
+      responses:
+        '202':
+          description: Stop effect execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+  /discovery/start:
+    post:
+      operationId: post_discovery_start
+      summary: Start adapter discovery
+      responses:
+        '202':
+          description: Start adapter discovery
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource or operation URL
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns
+          original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscoveryStart'
+  /operations/{id}:
+    get:
+      operationId: get_operations_id
+      summary: Read asynchronous operation
+      responses:
+        '200':
+          description: Read asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /events:
+    get:
+      operationId: get_events
+      summary: Upgrade to WebSocket
+      responses:
+        '101':
+          description: Upgrade to WebSocket
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '426':
+          description: WebSocket upgrade required
+          headers:
+            Upgrade:
+              schema:
+                type: string
+                const: websocket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      description: Bearer header authentication or browser first-frame authentication
+        within five seconds. No events until authenticated. Origin policy applies.
+        No replay; see docs/API.md.
+      security:
+      - bearerAuth: []
+      - {}
+      x-websocket:
+        clientAuthentication:
+          $ref: '#/components/schemas/WebSocketAuthenticate'
+        serverAuthentication:
+          $ref: '#/components/schemas/WebSocketAuthenticated'
+        event:
+          $ref: '#/components/schemas/Event'
+        replay: false
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    RGB:
+      type: object
+      properties:
+        r:
+          type: integer
+          minimum: 0
+          maximum: 255
+        g:
+          type: integer
+          minimum: 0
+          maximum: 255
+        b:
+          type: integer
+          minimum: 0
+          maximum: 255
+      required:
+      - r
+      - g
+      - b
+      additionalProperties: false
+    RGBW:
+      type: object
+      properties:
+        r:
+          type: integer
+          minimum: 0
+          maximum: 255
+        g:
+          type: integer
+          minimum: 0
+          maximum: 255
+        b:
+          type: integer
+          minimum: 0
+          maximum: 255
+        w:
+          type: integer
+          minimum: 0
+          maximum: 255
+      required:
+      - r
+      - g
+      - b
+      - w
+      additionalProperties: false
+    RGBWW:
+      type: object
+      properties:
+        r:
+          type: integer
+          minimum: 0
+          maximum: 255
+        g:
+          type: integer
+          minimum: 0
+          maximum: 255
+        b:
+          type: integer
+          minimum: 0
+          maximum: 255
+        warmWhite:
+          type: integer
+          minimum: 0
+          maximum: 255
+        coolWhite:
+          type: integer
+          minimum: 0
+          maximum: 255
+      required:
+      - r
+      - g
+      - b
+      - warmWhite
+      - coolWhite
+      additionalProperties: false
+    SegmentState:
+      type: object
+      properties:
+        power: &id002
+          type: boolean
+        brightness: &id003
+          type: number
+          minimum: 0
+          maximum: 100
+        rgb: &id004
+          $ref: '#/components/schemas/RGB'
+        rgbw: &id005
+          $ref: '#/components/schemas/RGBW'
+        rgbww: &id006
+          $ref: '#/components/schemas/RGBWW'
+        colorTemperature: &id007
+          type: integer
+          minimum: 1
+        effect: &id008
+          type:
+          - string
+          - 'null'
+      required: []
+      additionalProperties: false
+    DeviceState:
+      type: object
+      properties:
+        power: *id002
+        brightness: *id003
+        rgb: *id004
+        rgbw: *id005
+        rgbww: *id006
+        colorTemperature: *id007
+        effect: *id008
+        segments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              state:
+                $ref: '#/components/schemas/SegmentState'
+            required:
+            - id
+            - state
+            additionalProperties: false
+      required: []
+      additionalProperties: false
+      examples:
+      - power: true
+        brightness: 65
+        rgb:
+          r: 255
+          g: 0
+          b: 128
+    Capability:
+      oneOf:
+      - $ref: '#/components/schemas/PowerCapability'
+      - $ref: '#/components/schemas/BrightnessCapability'
+      - $ref: '#/components/schemas/RgbCapability'
+      - $ref: '#/components/schemas/RgbwCapability'
+      - $ref: '#/components/schemas/RgbwwCapability'
+      - $ref: '#/components/schemas/ColorTemperatureCapability'
+      - $ref: '#/components/schemas/EffectsCapability'
+      - $ref: '#/components/schemas/TransitionsCapability'
+      - $ref: '#/components/schemas/SegmentsCapability'
+      discriminator:
+        propertyName: type
+        mapping:
+          power: '#/components/schemas/PowerCapability'
+          brightness: '#/components/schemas/BrightnessCapability'
+          rgb: '#/components/schemas/RgbCapability'
+          rgbw: '#/components/schemas/RgbwCapability'
+          rgbww: '#/components/schemas/RgbwwCapability'
+          colorTemperature: '#/components/schemas/ColorTemperatureCapability'
+          effects: '#/components/schemas/EffectsCapability'
+          transitions: '#/components/schemas/TransitionsCapability'
+          segments: '#/components/schemas/SegmentsCapability'
+      examples:
+      - type: colorTemperature
+        minimum: 2200
+        maximum: 6500
+        step: 100
+    PowerCapability:
+      type: object
+      properties:
+        type:
+          const: power
+          type: string
+      required:
+      - type
+      additionalProperties: false
+    BrightnessCapability:
+      type: object
+      properties:
+        type:
+          const: brightness
+          type: string
+        minimum:
+          type: number
+        maximum:
+          type: number
+        step:
+          type: number
+          exclusiveMinimum: 0
+      required:
+      - type
+      - minimum
+      - maximum
+      - step
+      additionalProperties: false
+    RgbCapability:
+      type: object
+      properties:
+        type:
+          const: rgb
+          type: string
+      required:
+      - type
+      additionalProperties: false
+    RgbwCapability:
+      type: object
+      properties:
+        type:
+          const: rgbw
+          type: string
+      required:
+      - type
+      additionalProperties: false
+    RgbwwCapability:
+      type: object
+      properties:
+        type:
+          const: rgbww
+          type: string
+      required:
+      - type
+      additionalProperties: false
+    ColorTemperatureCapability:
+      type: object
+      properties:
+        type:
+          const: colorTemperature
+          type: string
+        minimum:
+          type: number
+        maximum:
+          type: number
+        step:
+          type: number
+          exclusiveMinimum: 0
+      required:
+      - type
+      - minimum
+      - maximum
+      - step
+      additionalProperties: false
+    EffectsCapability:
+      type: object
+      properties:
+        type:
+          const: effects
+          type: string
+        effectIds:
+          type: array
+          items:
+            type: string
+      required:
+      - type
+      - effectIds
+      additionalProperties: false
+    TransitionsCapability:
+      type: object
+      properties:
+        type:
+          const: transitions
+          type: string
+        maxDurationMs:
+          type: integer
+          minimum: 0
+      required:
+      - type
+      - maxDurationMs
+      additionalProperties: false
+    SegmentsCapability:
+      type: object
+      properties:
+        type:
+          const: segments
+          type: string
+        segmentIds:
+          type: array
+          items:
+            type: string
+      required:
+      - type
+      - segmentIds
+      additionalProperties: false
+    StateSnapshot:
+      type: object
+      properties:
+        state: &id021
+          $ref: '#/components/schemas/DeviceState'
+        observedAt: &id009
+          type:
+          - string
+          - 'null'
+          format: date-time
+        stale: &id022
+          type: boolean
+        revision: &id023
+          type: integer
+          minimum: 0
+      required:
+      - state
+      - observedAt
+      - stale
+      - revision
+      additionalProperties: false
+    Device:
+      type: object
+      properties:
+        id: *id001
+        name: &id010
+          type: string
+          minLength: 1
+        manufacturer:
+          type: string
+        model:
+          type:
+          - string
+          - 'null'
+        adapter:
+          type: string
+        address:
+          oneOf:
+          - type: 'null'
+          - type: object
+            properties:
+              transport:
+                type: string
+                enum:
+                - lan
+                - matter
+                - bridge
+                - cloud
+                - mock
+              endpoint:
+                type:
+                - string
+                - 'null'
+            required:
+            - transport
+            - endpoint
+            additionalProperties: false
+        room: &id011
+          type:
+          - string
+          - 'null'
+          format: uuid
+        groups: &id012
+          type: array
+          items: *id001
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        state:
+          $ref: '#/components/schemas/DeviceState'
+        stateObservedAt: *id009
+        stateStale:
+          type: boolean
+        revision:
+          type: integer
+          minimum: 0
+        availability:
+          type: string
+          enum:
+          - online
+          - offline
+          - unknown
+        metadata:
+          type: object
+          properties:
+            extensions:
+              type: object
+              propertyNames:
+                pattern: ^[a-z0-9-]+(\.[a-z0-9-]+)+$
+              additionalProperties:
+                type: object
+          required:
+          - extensions
+          additionalProperties: false
+      required:
+      - id
+      - name
+      - manufacturer
+      - model
+      - adapter
+      - address
+      - room
+      - groups
+      - capabilities
+      - state
+      - stateObservedAt
+      - stateStale
+      - revision
+      - availability
+      - metadata
+      additionalProperties: false
+      examples:
+      - id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        name: Desk lamp
+        manufacturer: Mock
+        model: RGB demo
+        adapter: mock
+        address:
+          transport: mock
+          endpoint: desk
+        room: null
+        groups: []
+        capabilities:
+        - type: power
+        - type: brightness
+          minimum: 0
+          maximum: 100
+          step: 1
+        - type: rgb
+        state:
+          power: true
+          brightness: 65
+          rgb:
+            r: 255
+            g: 0
+            b: 128
+        stateObservedAt: '2026-09-17T18:00:00Z'
+        stateStale: false
+        revision: 3
+        availability: online
+        metadata:
+          extensions: {}
+    DevicePatch:
+      type: object
+      properties:
+        name: *id010
+        room: *id011
+        groups: *id012
+      required: []
+      additionalProperties: false
+      minProperties: 1
+    Target:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - device
+          - group
+        id: *id001
+      required:
+      - type
+      - id
+      additionalProperties: false
+    Command:
+      type: object
+      properties:
+        state:
+          $ref: '#/components/schemas/DeviceState'
+          minProperties: 1
+        transitionMs:
+          type: integer
+          minimum: 0
+      required:
+      - state
+      additionalProperties: false
+      examples:
+      - state:
+          power: true
+          brightness: 65
+        transitionMs: 500
+      description: Nonempty partial desired state. Semantic validation enforces exclusive
+        color modes, effects/segments conflicts, device ranges and capabilities as
+        specified in docs/API.md; violations return 422.
+    Room:
+      type: object
+      properties:
+        id: *id001
+        name: &id013
+          type: string
+          minLength: 1
+      required:
+      - id
+      - name
+      additionalProperties: false
+      examples:
+      - id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        name: Office
+    Group:
+      type: object
+      properties:
+        id: *id001
+        name: &id015
+          type: string
+          minLength: 1
+        deviceIds: &id016
+          type: array
+          items: *id001
+          uniqueItems: true
+      required:
+      - id
+      - name
+      - deviceIds
+      additionalProperties: false
+      examples:
+      - id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        name: Evening lights
+        deviceIds:
+        - 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+    SceneEntry:
+      type: object
+      properties:
+        target:
+          $ref: '#/components/schemas/Target'
+        state:
+          $ref: '#/components/schemas/DeviceState'
+          minProperties: 1
+        transitionMs:
+          type: integer
+          minimum: 0
+      required:
+      - target
+      - state
+      additionalProperties: false
+    Scene:
+      type: object
+      properties:
+        id: *id001
+        name: &id018
+          type: string
+          minLength: 1
+        entries: &id019
+          type: array
+          items:
+            $ref: '#/components/schemas/SceneEntry'
+          minItems: 1
+      required:
+      - id
+      - name
+      - entries
+      additionalProperties: false
+      examples:
+      - id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        name: Reading
+        entries:
+        - target:
+            type: device
+            id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+          state:
+            power: true
+            brightness: 65
+          transitionMs: 500
+    RoomCreate:
+      type: object
+      properties: &id014
+        name: *id013
+      required:
+      - name
+      additionalProperties: false
+      description: Creation returns 422 resource_limit at the v1 installation limit
+        of 10,000 resources per collection.
+    RoomPatch:
+      type: object
+      properties: *id014
+      required: []
+      additionalProperties: false
+      minProperties: 1
+    GroupCreate:
+      type: object
+      properties: &id017
+        name: *id015
+        deviceIds: *id016
+      required:
+      - name
+      - deviceIds
+      additionalProperties: false
+      description: Creation returns 422 resource_limit at the v1 installation limit
+        of 10,000 resources per collection.
+    GroupPatch:
+      type: object
+      properties: *id017
+      required: []
+      additionalProperties: false
+      minProperties: 1
+    SceneCreate:
+      type: object
+      properties: &id020
+        name: *id018
+        entries: *id019
+      required:
+      - name
+      - entries
+      additionalProperties: false
+      description: Creation returns 422 resource_limit at the v1 installation limit
+        of 10,000 resources per collection.
+    ScenePatch:
+      type: object
+      properties: *id020
+      required: []
+      additionalProperties: false
+      minProperties: 1
+    AggregateState:
+      type: object
+      properties:
+        deviceStates:
+          type: array
+          items:
+            type: object
+            properties:
+              deviceId: *id001
+              state: *id021
+              observedAt: *id009
+              stale: *id022
+              revision: *id023
+              availability:
+                type: string
+                enum:
+                - online
+                - offline
+                - unknown
+            required:
+            - deviceId
+            - state
+            - observedAt
+            - stale
+            - revision
+            - availability
+            additionalProperties: false
+        mixed:
+          type: boolean
+      required:
+      - deviceStates
+      - mixed
+      additionalProperties: false
+    Effect:
+      type: object
+      properties:
+        id: *id001
+        name:
+          type: string
+        requiredCapabilities:
+          type: array
+          items:
+            type: string
+        minimumIntervalMs:
+          type: integer
+          minimum: 1
+        parameters:
+          type: object
+          description: JSON Schema defining accepted parameter values for this effect.
+          additionalProperties: true
+      required:
+      - id
+      - name
+      - requiredCapabilities
+      - minimumIntervalMs
+      - parameters
+      additionalProperties: false
+      examples:
+      - id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        name: Slow pulse
+        requiredCapabilities:
+        - brightness
+        minimumIntervalMs: 1000
+        parameters:
+          type: object
+          properties: {}
+          additionalProperties: false
+    EffectRun:
+      type: object
+      properties:
+        id: *id001
+        effectId: *id001
+        deviceIds:
+          type: array
+          items: *id001
+        status:
+          type: string
+          enum:
+          - starting
+          - running
+          - stopped
+          - failed
+        startedAt: &id024
+          type: string
+          format: date-time
+        stoppedAt: *id009
+        effectiveIntervalMs:
+          type: integer
+          minimum: 1
+          description: 'Conservative summary: slowest interval among participating
+            devices. Per-device scheduling uses deviceExecutions.'
+        reason:
+          type:
+          - string
+          - 'null'
+        deviceExecutions:
+          type: array
+          items:
+            type: object
+            properties:
+              deviceId: &id025
+                type: string
+                format: uuid
+              status:
+                type: string
+                enum:
+                - starting
+                - running
+                - stopped
+                - failed
+              effectiveIntervalMs:
+                type: integer
+                minimum: 1
+              droppedFrames:
+                type: integer
+                minimum: 0
+              throttled:
+                type: boolean
+              error:
+                $ref: '#/components/schemas/ErrorDetail'
+            required:
+            - deviceId
+            - status
+            - effectiveIntervalMs
+            - droppedFrames
+            - throttled
+            additionalProperties: false
+      required:
+      - id
+      - effectId
+      - deviceIds
+      - status
+      - startedAt
+      - stoppedAt
+      - effectiveIntervalMs
+      - reason
+      - deviceExecutions
+      additionalProperties: false
+    ErrorDetail:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              code:
+                type: string
+              message:
+                type: string
+              deviceId: *id001
+              capability:
+                type: string
+            required:
+            - path
+            - code
+            - message
+            additionalProperties: false
+      required:
+      - code
+      - message
+      - requestId
+      - details
+      additionalProperties: false
+    Error:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+      required:
+      - error
+      additionalProperties: false
+      examples:
+      - &id027
+        error:
+          code: validation_error
+          message: Invalid request
+          requestId: req-29
+          details:
+          - path: /state/brightness
+            code: out_of_range
+            message: Expected a number between 0 and 100
+      - error:
+          code: capability_mismatch
+          message: Device does not support rgb
+          requestId: req-28
+          details:
+          - path: /state/rgb
+            code: unsupported_capability
+            message: Required capability rgb is absent
+            deviceId: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+            capability: rgb
+    DeviceResult:
+      type: object
+      properties:
+        deviceId: *id001
+        status:
+          type: string
+          enum:
+          - succeeded
+          - degraded
+          - failed
+        confirmation:
+          type: string
+          enum:
+          - observed
+          - acknowledged
+          - unconfirmed
+        state:
+          $ref: '#/components/schemas/DeviceState'
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              requested:
+                type: string
+              applied:
+                type: string
+            required:
+            - code
+            - requested
+            - applied
+            additionalProperties: false
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+        transport:
+          type:
+          - string
+          - 'null'
+          enum:
+          - lan
+          - matter
+          - bridge
+          - cloud
+          - mock
+          - null
+          description: Actual execution transport, null when no dispatch occurred.
+        fallback:
+          type:
+          - object
+          - 'null'
+          properties:
+            from:
+              type: string
+            to:
+              type: string
+            reason:
+              type: string
+          required:
+          - from
+          - to
+          - reason
+          additionalProperties: false
+          description: Selected fallback provenance; null when primary route used
+            or no dispatch.
+        fieldResults:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+                description: JSON Pointer into requested state
+              status:
+                type: string
+                enum:
+                - applied
+                - failed
+                - unconfirmed
+                - omitted
+              reason:
+                type: string
+            required:
+            - path
+            - status
+            additionalProperties: false
+          description: Per-field outcomes for non-atomic multi-field calls. Applied
+            means transport acknowledged, not necessarily hardware observed. Empty
+            when no fields were dispatched.
+      required:
+      - deviceId
+      - status
+      - confirmation
+      - warnings
+      - transport
+      - fallback
+      - fieldResults
+      additionalProperties: false
+    Operation:
+      type: object
+      properties:
+        id: *id001
+        kind:
+          type: string
+          enum:
+          - device.command
+          - group.command
+          - scene.activate
+          - effect.start
+          - effect.stop
+          - discovery
+        status: &id026
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - partial
+          - failed
+        createdAt: *id024
+        completedAt: *id009
+        request:
+          type: object
+          additionalProperties: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceResult'
+        effectRunId: *id001
+        discoveredDeviceIds:
+          type: array
+          items: *id001
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+        targetDeviceIds:
+          type: array
+          items: *id025
+          uniqueItems: true
+          description: Frozen execution targets; empty for discovery whose discoveredDeviceIds
+            holds results.
+        adapterResults:
+          type: array
+          items:
+            type: object
+            properties:
+              adapterId:
+                type: string
+              status:
+                type: string
+                enum:
+                - succeeded
+                - failed
+              discoveredDeviceIds:
+                type: array
+                items: *id025
+              error:
+                $ref: '#/components/schemas/ErrorDetail'
+            required:
+            - adapterId
+            - status
+            - discoveredDeviceIds
+            additionalProperties: false
+          description: Discovery records every selected adapter outcome; mixed success
+            yields partial.
+      required:
+      - id
+      - kind
+      - status
+      - createdAt
+      - completedAt
+      - request
+      - results
+      - targetDeviceIds
+      additionalProperties: false
+      examples:
+      - id: b780bb96-58aa-42e5-a9c9-59833d5689bc
+        kind: device.command
+        status: queued
+        createdAt: '2026-09-17T18:00:00Z'
+        completedAt: null
+        request:
+          state:
+            power: true
+        results: []
+        targetDeviceIds:
+        - 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+      - id: b780bb96-58aa-42e5-a9c9-59833d5689bc
+        kind: group.command
+        status: partial
+        createdAt: '2026-09-17T18:00:00Z'
+        completedAt: '2026-09-17T18:00:01Z'
+        request:
+          state:
+            power: true
+        targetDeviceIds:
+        - 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        - d3b92289-adbd-464c-98fa-267b543f1c77
+        results:
+        - deviceId: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+          status: succeeded
+          confirmation: observed
+          state:
+            power: true
+          warnings: []
+          transport: mock
+          fallback: null
+          fieldResults:
+          - path: /power
+            status: applied
+        - deviceId: d3b92289-adbd-464c-98fa-267b543f1c77
+          status: failed
+          confirmation: unconfirmed
+          warnings: []
+          error:
+            code: device_offline
+            message: Device is offline
+            requestId: req-30
+            details: []
+          transport: null
+          fallback: null
+          fieldResults: []
+    SceneActivate:
+      type: object
+      properties:
+        allowDegraded:
+          type: boolean
+          default: false
+      required: []
+      additionalProperties: false
+    EffectStart:
+      type: object
+      properties:
+        target:
+          $ref: '#/components/schemas/Target'
+        parameters:
+          type: object
+          additionalProperties: true
+      required:
+      - target
+      additionalProperties: false
+    DiscoveryStart:
+      type: object
+      properties:
+        adapterIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          uniqueItems: true
+      required: []
+      additionalProperties: false
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - ready
+          - not_ready
+        gatewayId: *id001
+        bootId: *id001
+      required:
+      - status
+      - gatewayId
+      - bootId
+      additionalProperties: false
+    Empty:
+      type: object
+      properties: {}
+      required: []
+      additionalProperties: false
+    Event:
+      oneOf:
+      - $ref: '#/components/schemas/GatewayStartedEvent'
+      - $ref: '#/components/schemas/GatewayStoppingEvent'
+      - $ref: '#/components/schemas/DeviceDiscoveredEvent'
+      - $ref: '#/components/schemas/DeviceConnectedEvent'
+      - $ref: '#/components/schemas/DeviceDisconnectedEvent'
+      - $ref: '#/components/schemas/DeviceStateChangedEvent'
+      - $ref: '#/components/schemas/DeviceCapabilitiesChangedEvent'
+      - $ref: '#/components/schemas/RoomStateChangedEvent'
+      - $ref: '#/components/schemas/GroupStateChangedEvent'
+      - $ref: '#/components/schemas/SceneStartedEvent'
+      - $ref: '#/components/schemas/SceneCompletedEvent'
+      - $ref: '#/components/schemas/SceneFailedEvent'
+      - $ref: '#/components/schemas/EffectStartedEvent'
+      - $ref: '#/components/schemas/EffectUpdatedEvent'
+      - $ref: '#/components/schemas/EffectStoppedEvent'
+      - $ref: '#/components/schemas/AdapterConnectedEvent'
+      - $ref: '#/components/schemas/AdapterDisconnectedEvent'
+      - $ref: '#/components/schemas/AdapterErrorEvent'
+      - $ref: '#/components/schemas/OperationCompletedEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          gateway.started: '#/components/schemas/GatewayStartedEvent'
+          gateway.stopping: '#/components/schemas/GatewayStoppingEvent'
+          device.discovered: '#/components/schemas/DeviceDiscoveredEvent'
+          device.connected: '#/components/schemas/DeviceConnectedEvent'
+          device.disconnected: '#/components/schemas/DeviceDisconnectedEvent'
+          device.state_changed: '#/components/schemas/DeviceStateChangedEvent'
+          device.capabilities_changed: '#/components/schemas/DeviceCapabilitiesChangedEvent'
+          room.state_changed: '#/components/schemas/RoomStateChangedEvent'
+          group.state_changed: '#/components/schemas/GroupStateChangedEvent'
+          scene.started: '#/components/schemas/SceneStartedEvent'
+          scene.completed: '#/components/schemas/SceneCompletedEvent'
+          scene.failed: '#/components/schemas/SceneFailedEvent'
+          effect.started: '#/components/schemas/EffectStartedEvent'
+          effect.updated: '#/components/schemas/EffectUpdatedEvent'
+          effect.stopped: '#/components/schemas/EffectStoppedEvent'
+          adapter.connected: '#/components/schemas/AdapterConnectedEvent'
+          adapter.disconnected: '#/components/schemas/AdapterDisconnectedEvent'
+          adapter.error: '#/components/schemas/AdapterErrorEvent'
+          operation.completed: '#/components/schemas/OperationCompletedEvent'
+      examples:
+      - schemaVersion: '1.0'
+        id: a78adb8a-547e-45b1-b710-203f6ed139b4
+        sequence: 42
+        gatewayId: f8603ea7-9f63-49f7-a915-1eaa6514e184
+        bootId: 5026cf62-5587-4e23-b9cf-f529ffb909c7
+        type: device.state_changed
+        occurredAt: '2026-09-17T18:00:01Z'
+        subject:
+          type: device
+          id: 1c2bd3ee-7334-400e-8bc1-96c02bf16b45
+        correlationId: b780bb96-58aa-42e5-a9c9-59833d5689bc
+        data:
+          state:
+            power: true
+            brightness: 65
+          observedAt: '2026-09-17T18:00:01Z'
+          stale: false
+          revision: 8
+    GatewayStartedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: gateway.started
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: gateway
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            reason:
+              type: string
+          required:
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    GatewayStoppingEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: gateway.stopping
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: gateway
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            reason:
+              type: string
+          required:
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    DeviceDiscoveredEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: device.discovered
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: device
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            device:
+              $ref: '#/components/schemas/Device'
+          required:
+          - device
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    DeviceConnectedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: device.connected
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: device
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            availability:
+              type: string
+              enum:
+              - online
+              - offline
+              - unknown
+            reason:
+              type: string
+          required:
+          - availability
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    DeviceDisconnectedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: device.disconnected
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: device
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            availability:
+              type: string
+              enum:
+              - online
+              - offline
+              - unknown
+            reason:
+              type: string
+          required:
+          - availability
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    DeviceStateChangedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: device.state_changed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: device
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          $ref: '#/components/schemas/StateSnapshot'
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    DeviceCapabilitiesChangedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: device.capabilities_changed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: device
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            capabilities:
+              type: array
+              items:
+                $ref: '#/components/schemas/Capability'
+          required:
+          - capabilities
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    RoomStateChangedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: room.state_changed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: room
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          $ref: '#/components/schemas/AggregateState'
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    GroupStateChangedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: group.state_changed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: group
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          $ref: '#/components/schemas/AggregateState'
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    SceneStartedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: scene.started
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: scene
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            operationId: *id001
+            status: *id026
+          required:
+          - operationId
+          - status
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    SceneCompletedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: scene.completed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: scene
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            operationId: *id001
+            status: *id026
+          required:
+          - operationId
+          - status
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    SceneFailedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: scene.failed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: scene
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            operationId: *id001
+            status: *id026
+          required:
+          - operationId
+          - status
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    EffectStartedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: effect.started
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: effect-run
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            run:
+              $ref: '#/components/schemas/EffectRun'
+          required:
+          - run
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    EffectUpdatedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: effect.updated
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: effect-run
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            run:
+              $ref: '#/components/schemas/EffectRun'
+          required:
+          - run
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    EffectStoppedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: effect.stopped
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: effect-run
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            run:
+              $ref: '#/components/schemas/EffectRun'
+          required:
+          - run
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    AdapterConnectedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: adapter.connected
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: adapter
+            id:
+              type: string
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            adapterId:
+              type: string
+            reason:
+              type: string
+            error:
+              $ref: '#/components/schemas/ErrorDetail'
+          required:
+          - adapterId
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    AdapterDisconnectedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: adapter.disconnected
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: adapter
+            id:
+              type: string
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            adapterId:
+              type: string
+            reason:
+              type: string
+            error:
+              $ref: '#/components/schemas/ErrorDetail'
+          required:
+          - adapterId
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    AdapterErrorEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: adapter.error
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: adapter
+            id:
+              type: string
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            adapterId:
+              type: string
+            reason:
+              type: string
+            error:
+              $ref: '#/components/schemas/ErrorDetail'
+          required:
+          - adapterId
+          - reason
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    OperationCompletedEvent:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        id: *id001
+        sequence:
+          type: integer
+          minimum: 0
+        gatewayId: *id001
+        bootId: *id001
+        type:
+          type: string
+          const: operation.completed
+        occurredAt: *id024
+        subject:
+          type: object
+          properties:
+            type:
+              type: string
+              const: operation
+            id: *id001
+          required:
+          - type
+          - id
+          additionalProperties: false
+        correlationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        data:
+          type: object
+          properties:
+            operation:
+              $ref: '#/components/schemas/Operation'
+          required:
+          - operation
+          additionalProperties: false
+      required:
+      - schemaVersion
+      - id
+      - sequence
+      - gatewayId
+      - bootId
+      - type
+      - occurredAt
+      - subject
+      - correlationId
+      - data
+      additionalProperties: false
+    WebSocketAuthenticate:
+      type: object
+      properties:
+        type:
+          type: string
+          const: authenticate
+        token:
+          type: string
+          minLength: 1
+      required:
+      - type
+      - token
+      additionalProperties: false
+    WebSocketAuthenticated:
+      type: object
+      properties:
+        type:
+          type: string
+          const: authenticated
+        gatewayId: *id001
+        bootId: *id001
+      required:
+      - type
+      - gatewayId
+      - bootId
+      additionalProperties: false
+  responses:
+    '400':
+      description: Malformed syntax or missing/invalid Idempotency-Key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '401':
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '403':
+      description: Forbidden or disallowed Origin
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '404':
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '409':
+      description: Conflict, offline device, active effect or key conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '412':
+      description: ETag precondition failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '413':
+      description: Request body too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '415':
+      description: Unsupported media type
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '422':
+      description: Validation/capability failure or no eligible targets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '428':
+      description: If-Match required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '429':
+      description: Rate/queue limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+      headers:
+        Retry-After:
+          schema:
+            type: string
+          description: Seconds until retry is permitted
+    '500':
+      description: Redacted internal failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027
+    '503':
+      description: Gateway or adapter unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: *id027

@@ -1,0 +1,23 @@
+# Build the installation at ~/openlight-gateway with npm install && npm run build.
+# Create a token locally: node dist/service/token.js create
+# mkdir -p ~/.config/systemd/user
+# cp docs/openlight-gateway.service ~/.config/systemd/user/
+# systemctl --user daemon-reload
+# systemctl --user enable --now openlight-gateway
+# Adjust WorkingDirectory and ExecStart if installed elsewhere. Node must be on
+# the user manager's PATH (or replace node with its absolute executable path).
+[Unit]
+Description=OpenLight Gateway
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/openlight-gateway
+ExecStart=node dist/service/main.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
