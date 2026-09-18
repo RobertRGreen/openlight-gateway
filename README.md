@@ -2,7 +2,7 @@
 
 OpenLight is a standalone, local-first lighting API. It lets automation and PC RGB clients control lights through a shared device, capability, command, and event model. It has no GUI.
 
-The working backend is the **mock adapter**: five simulated devices demonstrate RGB, tunable white, dimmable white, RGBW, and offline behavior. Govee, Feit Electric, and Hubspace/Afero fit the adapter architecture but **are not implemented; real hardware is not supported yet**. The REST API, authenticated WebSocket events, SQLite persistence, rooms, groups, scenes, and operation results use the existing core. Static and pulse effects execute; the other catalog entries are planned and return `effect_not_implemented`.
+The default backend is the **mock adapter**: five simulated devices demonstrate RGB, tunable white, dimmable white, RGBW, and offline behavior. An opt-in **Govee LAN adapter** implements UDP discovery and control; independent hardware verification is pending. A separate opt-in **Govee Cloud adapter** supports devices available through the official Developer API, including bulbs without LAN Control. Feit Electric and Hubspace/Afero are not implemented. The REST API, authenticated WebSocket events, SQLite persistence, rooms, groups, scenes, and operation results use the existing core. Static and pulse effects execute; the other catalog entries are planned and return `effect_not_implemented`.
 
 ## Architecture
 
@@ -109,6 +109,28 @@ After fetching snapshots, apply newer device-state revisions from the buffer; re
 
 Adapters implement discovery, transport, capabilities, observation, and writes. The core uses their shared interface rather than manufacturer branches. Adding a manufacturer requires protocol research, truthful capability mapping, bounded transport calls, and conformance tests; see [adding adapters](docs/ADAPTERS.md).
 
+### Govee LAN setup
+
+For each supported device, manually enable **LAN Control** in the official Govee Home app before discovery. Devices without this toggle, or with it disabled, will not respond; the gateway cannot enable it automatically. Keep the gateway and devices on a network that permits multicast discovery and UDP responses, then opt in:
+
+```sh
+GOVEE_ADAPTER_ENABLED=true npm run dev
+```
+
+Startup discovery sends the scan to `239.255.255.250:4001`, receives responses on UDP port `4002`, and sends device commands to each device's IP on UDP port `4003`. Permit these ports through the host/network firewall. `GOVEE_DISCOVERY_TIMEOUT_MS` defaults to 1500 milliseconds and is bounded by `ADAPTER_TIMEOUT_MS`. Discovery runs in the background so its deadline or a socket failure does not delay mock/API readiness. Restart the gateway to repeat startup discovery after enabling LAN Control or changing the network.
+
+Govee LAN devices advertise only power, brightness (0–100%), and RGB color. Color temperature, effects, transitions, and segments are not exposed by this LAN integration, even when available in Govee's app. State is read with `devStatus`; writes and observations remain subject to UDP loss and device availability. Tests use an injected fake transport; live hardware acceptance is pending Claude's independent review.
+
+### Govee Cloud setup
+
+Obtain a Developer API key through the Govee Home app and set `GOVEE_API_KEY` in your process environment. `npm run dev` does not automatically load `.env` files. Enable `GOVEE_CLOUD_ADAPTER_ENABLED=true` (default `false`) and restart the gateway. The flag requires a non-empty key; missing credentials produce a clear startup error while mock/API/LAN readiness remains available. Cloud discovery runs in the background and queries the account's device list once at startup. Cloud startup failures remain isolated from the other adapters.
+
+This is a separate adapter identity, `govee-cloud`; LAN retains `govee` and does not require an API key. Devices without a LAN Control toggle can use the cloud adapter if the Developer API lists them. **Known limitation:** enabling both adapters can register the same physical bulb twice, once under each adapter identity; there is no cross-adapter deduplication.
+
+Capabilities come from each device's API response: power, brightness with its actual range and step, RGB, and color temperature with its actual Kelvin range. Effects, transitions, and segments are not exposed. The cloud API uses packed RGB integers; OpenLight accepts ordinary RGB channels. Direct adapter calls with brightness `0` send power off because Govee's brightness range starts at `1`. REST callers should send `{"state":{"power":false}}` to turn off: REST validation preserves the advertised brightness minimum and rejects brightness below it.
+
+Cloud requests require internet access and use separate limits: control 12 requests/second/account with burst 80, state 30 requests/minute/device, and discovery 30 requests/minute/account with burst 30. A device state response reporting offline produces an offline availability update and an `OFFLINE` error; its cached values are not returned as a fresh observation. Tests mock HTTP; live hardware acceptance and Claude's independent review remain pending. See [manufacturer research](docs/DEVICE-RESEARCH.md).
+
 Localhost is the default, not an authentication bypass. Host validation, explicit browser Origins, bounded bodies and queues, request budgets, and token verification protect the API. LAN binding requires `BIND_MODE=lan` plus gateway TLS (`TLS_MODE=gateway`, certificate/key paths) or an explicitly trusted TLS proxy (`TLS_MODE=proxy`, `TRUSTED_PROXIES`). Set `ALLOWED_HOSTS` to the intended hostname(s); enable `MDNS_ENABLED=true` only deliberately. Manufacturer credentials do not belong in normalized state or logs. See [security](docs/SECURITY.md).
 
 ## Development and installation
@@ -124,4 +146,4 @@ The [systemd user unit](docs/openlight-gateway.service) includes installation in
 
 ## Roadmap
 
-Phase 1 is the mock-backed gateway and its independent acceptance review. Later phases add researched and hardware-tested Govee/Feit/Hubspace adapters, local standards and bridges, then PC RGB coordination and richer effects. Scoped tokens and durable event replay are future work. See [the roadmap](docs/ROADMAP.md).
+Phase 1 is the merged mock-backed gateway. Govee LAN is the first real adapter implementation, awaiting independent hardware acceptance. Later work adds hardware-tested Feit/Hubspace adapters, local standards and bridges, then PC RGB coordination and richer effects. Scoped tokens and durable event replay are future work. See [the roadmap](docs/ROADMAP.md).

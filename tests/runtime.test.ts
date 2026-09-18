@@ -7,6 +7,17 @@ import {DeviceRegistry} from '../src/core/devices/index.js';
 import {GatewayStore} from '../src/persistence/index.js';
 
 describe('adapter isolation and reconciliation',()=>{
+ it('leaves endpoint-specific budgets to adapters that enforce their own quotas',async()=>{
+  const runtime=new AdapterRuntime(new DomainBus(randomUUID()),undefined,{timeoutMs:100});
+  const adapter=new MockAdapter({latencyMs:0});
+  Object.assign(adapter.scheduling,{budgetManagement:'adapter',minUpdateIntervalMs:0,budgets:[{scope:'account',key:'endpoint-specific',maxRequests:1,windowMs:60000,burst:1,maxConcurrent:1}]});
+  runtime.register(adapter);
+  try {
+   await runtime.connect(adapter.id);
+   await expect(runtime.call(adapter.id,'first',null,c=>adapter.getDevices(c))).resolves.toHaveLength(5);
+   await expect(runtime.call(adapter.id,'second',null,c=>adapter.getDevices(c))).resolves.toHaveLength(5);
+  } finally {await runtime.close();}
+ });
  it('contains a thrown adapter failure while unrelated adapters remain usable',async()=>{
   const bus=new DomainBus(randomUUID());const events:string[]=[];bus.subscribe(event=>events.push(event.type));
   const runtime=new AdapterRuntime(bus,undefined,{timeoutMs:500});const broken=new MockAdapter({id:'broken'});const healthy=new MockAdapter({id:'healthy'});runtime.register(broken);runtime.register(healthy);

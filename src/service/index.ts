@@ -6,6 +6,9 @@ import { TokenService } from '../security/index.js';
 import { DomainBus } from '../core/events.js';
 import { AdapterRuntime } from '../adapters/runtime.js';
 import { MockAdapter } from '../adapters/mock/index.js';
+import { GoveeAdapter } from '../adapters/govee/index.js';
+import { GoveeCloudAdapter } from '../adapters/govee/cloud-adapter.js';
+import { NodeGoveeTransport, type GoveeTransport } from '../adapters/govee/transport.js';
 import { DeviceRegistry } from '../core/devices/index.js';
 import { OperationService } from '../core/operations/index.js';
 import { RoomService } from '../core/rooms/index.js';
@@ -18,6 +21,7 @@ export interface CompositionOptions {
   config?: GatewayConfig;
   logger?: Logger;
   deferReady?: boolean;
+  goveeTransport?: GoveeTransport;
 }
 
 /** The API layer owns its listener and can import these services independently. */
@@ -82,6 +86,47 @@ export async function createGateway(options: CompositionOptions = {}) {
       if (device && runtime.list().some(adapter => adapter.id === device.adapter)) await registry.refresh(id);
     }));
     registry.startPolling();
+    // Govee discovery requires LAN Control enabled manually in Govee Home.
+    // Keep optional network startup off the mock/API readiness path.
+    if (config.goveeAdapterEnabled) {
+      const startGovee = (async () => {
+        try {
+          const govee = new GoveeAdapter({
+            transport: options.goveeTransport ?? new NodeGoveeTransport(),
+            discoveryTimeoutMs: Math.min(config.goveeDiscoveryTimeoutMs, config.adapterTimeoutMs - 25),
+            logger: { warn: message => logger.warn({ adapter: 'govee' }, message) },
+          });
+          runtime.register(govee);
+          await runtime.connect(govee.id);
+          if (!shutdownStarted) await registry.discover(govee.id);
+        } catch {
+          if (!shutdownStarted) logger.warn({ adapter: 'govee', errorCategory: 'startup' }, 'Govee startup failed; mock and API remain available');
+        }
+      })();
+      // Runtime close aborts adapter calls first; drain discovery before closing storage.
+      cleanup.push({ order: 15, run: () => startGovee });
+    }
+    if (config.goveeCloudAdapterEnabled) {
+      if (!config.goveeApiKey.trim()) {
+        logger.error({ adapter: 'govee-cloud', errorCategory: 'configuration' }, 'GOVEE_CLOUD_ADAPTER_ENABLED requires a non-empty GOVEE_API_KEY; Govee Cloud startup failed; mock, API, and LAN remain available');
+      } else {
+        const startGoveeCloud = (async () => {
+          try {
+            const cloud = new GoveeCloudAdapter({
+              apiKey: config.goveeApiKey,
+              commandTimeoutMs: config.adapterTimeoutMs,
+              logger: { warn: message => logger.warn({ adapter: 'govee-cloud' }, message) },
+            });
+            runtime.register(cloud);
+            await runtime.connect(cloud.id);
+            if (!shutdownStarted) await registry.discover(cloud.id);
+          } catch {
+            if (!shutdownStarted) logger.warn({ adapter: 'govee-cloud', errorCategory: 'startup' }, 'Govee Cloud startup failed; mock, API, and LAN remain available');
+          }
+        })();
+        cleanup.push({ order: 15, run: () => startGoveeCloud });
+      }
+    }
     let ready = false;
     const markReady = () => {
       if (ready || shutdownStarted) return;

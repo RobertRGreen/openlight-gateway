@@ -81,3 +81,18 @@ Hubspace is Home Depot's smart-home brand; the underlying platform is **Afero's*
 2. **Cloud dependency is a real, current risk, not a hypothetical one.** Govee's March 2026 cloud-auth breakage is the concrete case study motivating `docs/ARCHITECTURE.md`'s adapter-isolation and local-first-with-explicit-fallback design — this is not speculative future-proofing.
 3. **None of the three ecosystems support automatic zero-touch discovery + control out of the box:** Govee LAN requires a manual per-device in-app toggle; Feit/Tuya requires local-key extraction; Hubspace has no local path at all and requires cloud auth. `docs/ARCHITECTURE.md`'s manual/static discovery provider is not a fallback for an edge case — it is necessary, routine onboarding for at least two of the three initial ecosystems.
 4. **Ecosystem-specific OSS libraries are all young, forked, or recently broken.** Depend on the underlying protocol/API directly where documented (Govee LAN, Govee cloud, aioafero's approach for Hubspace) rather than taking a hard dependency on any single third-party library's release cadence.
+
+
+## 2026-09-17 addendum: verified Govee Developer API v1 limits
+
+The task supervisor independently fetched [Govee's live Developer API reference](https://developer.govee.com/reference) on 2026-09-17. These official endpoint-specific figures supersede the older, less precise third-party rate-limit figures in the original research above, which are preserved for provenance:
+
+| Endpoint | Verified limit | Burst |
+|---|---|---|
+| `GET /router/api/v1/user/devices` | 30 requests/minute/account | 30 |
+| `POST /router/api/v1/device/control` | 12 requests/second/account (approximately 720/minute) | 80 |
+| `POST /router/api/v1/device/state` | 30 requests/minute/device | Not separately specified |
+
+All endpoints use `https://openapi.api.govee.com` and the `Govee-API-Key` header. Control uses `requestId` and a `payload` containing `sku`, `device`, and one capability with `type`, `instance`, and `value`. RGB values are packed integers from 0 to 16777215. Brightness is an integer from 1 to 100; the adapter maps a direct normalized brightness-zero call to power off. Device capabilities and brightness/temperature ranges must come from each list entry's `capabilities[].parameters.range`, rather than global SKU assumptions. State values come from `payload.capabilities[].state.value`, matched by capability type and instance; the online capability supplies availability.
+
+The Govee Cloud integration is a separate opt-in adapter for devices available through the Developer API, including basic RGB bulbs without LAN Control. It does not depend on LAN discovery. Both adapters can expose the same physical device under separate identities when enabled simultaneously.

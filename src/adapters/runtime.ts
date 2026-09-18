@@ -68,7 +68,7 @@ export class AdapterRuntime {
  }
  private budgetKey(id:string,nativeId:string|null,budget:RateBudget):string {return budget.scope==='account'?`account:${budget.key}`:budget.scope==='device'?`${id}:${nativeId??'session'}:${budget.key}`:`${id}:${budget.key}`;}
  private async acquire(adapter:LightingAdapter,nativeId:string|null,signal:AbortSignal):Promise<()=>void> {
-  const specs=adapter.scheduling.budgets.map(budget=>{const key=this.budgetKey(adapter.id,nativeId,budget);const bucket=this.buckets.get(key)??{times:[],active:0,next:0};this.buckets.set(key,bucket);return{budget,bucket};});
+  const specs=(adapter.scheduling.budgetManagement==='adapter'?[]:adapter.scheduling.budgets).map(budget=>{const key=this.budgetKey(adapter.id,nativeId,budget);const bucket=this.buckets.get(key)??{times:[],active:0,next:0};this.buckets.set(key,bucket);return{budget,bucket};});
   const deviceKey=`${adapter.id}:${nativeId??'session'}`;
   while(true){signal.throwIfAborted();const now=performance.now();let wait=Math.max(0,(this.nextDeviceCall.get(deviceKey)??0)-now);
    for(const {budget,bucket} of specs){bucket.times=bucket.times.filter(t=>t>now-budget.windowMs);if(bucket.active>=budget.maxConcurrent)wait=Math.max(wait,5);if(bucket.times.length>=budget.maxRequests)wait=Math.max(wait,(bucket.times[0]??now)+budget.windowMs-now);wait=Math.max(wait,bucket.next-now);const burstWindow=budget.windowMs/Math.max(1,budget.maxRequests)*Math.max(1,budget.burst);const recent=bucket.times.filter(t=>t>now-burstWindow);if(recent.length>=budget.burst)wait=Math.max(wait,(recent[0]??now)+burstWindow-now);}

@@ -12,6 +12,9 @@ const schema = z.object({
   DATABASE_PATH: z.string().min(1).default('./data/openlight.sqlite'),
   GATEWAY_NAME: z.string().min(1).max(63).default('OpenLight Gateway'),
   MDNS_ENABLED: booleanEnv.default('false'),
+  GOVEE_ADAPTER_ENABLED: booleanEnv.default('false'),
+  GOVEE_CLOUD_ADAPTER_ENABLED: booleanEnv.default('false'),
+  GOVEE_DISCOVERY_TIMEOUT_MS: z.coerce.number().int().min(50).max(60_000).default(1500),
   CORS_ORIGINS: z.string().default(''), LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   MOCK_LATENCY_MS: z.coerce.number().int().min(0).max(60_000).default(5),
   ADAPTER_TIMEOUT_MS: z.coerce.number().int().min(100).max(120_000).default(5_000),
@@ -32,6 +35,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   return { port: value.PORT, bindMode: value.BIND_MODE, host: value.BIND_MODE === 'localhost' ? '127.0.0.1' : '0.0.0.0', tlsMode: value.TLS_MODE,
     tlsCertPath: value.TLS_CERT_PATH, tlsKeyPath: value.TLS_KEY_PATH, trustedProxies: split(value.TRUSTED_PROXIES), allowedHosts: split(value.ALLOWED_HOSTS),
     apiTokenSalt: value.API_TOKEN_SALT, goveeApiKey: value.GOVEE_API_KEY, databasePath: value.DATABASE_PATH, gatewayName: value.GATEWAY_NAME,
-    mdnsEnabled: value.MDNS_ENABLED, cors, logLevel: value.LOG_LEVEL, mockLatencyMs: value.MOCK_LATENCY_MS, adapterTimeoutMs: value.ADAPTER_TIMEOUT_MS };
+    mdnsEnabled: value.MDNS_ENABLED, goveeAdapterEnabled: value.GOVEE_ADAPTER_ENABLED,
+    goveeCloudAdapterEnabled: value.GOVEE_CLOUD_ADAPTER_ENABLED,
+    goveeDiscoveryTimeoutMs: value.GOVEE_DISCOVERY_TIMEOUT_MS,
+    cors, logLevel: value.LOG_LEVEL, mockLatencyMs: value.MOCK_LATENCY_MS, adapterTimeoutMs: value.ADAPTER_TIMEOUT_MS };
 }
 export type GatewayConfig = ReturnType<typeof loadConfig>;

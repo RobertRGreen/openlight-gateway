@@ -7,7 +7,8 @@ export interface AdapterDevice {nativeId:string;name:string;manufacturer:string;
 export interface Observation {state:DeviceState;observedAt:string;complete:boolean;nativeSequence?:string}
 export interface WriteReceipt {transport:Transport;acknowledgment:'accepted'|'applied';observation?:Observation}
 export interface RateBudget {scope:'adapter'|'account'|'device';key:string;maxRequests:number;windowMs:number;burst:number;maxConcurrent:number}
-export interface SchedulingProfile {budgets:readonly RateBudget[];minUpdateIntervalMs:number;estimatedLatencyMs:number;recommendedPollIntervalMs:number}
+/** Adapter-managed budgets are enforced per HTTP endpoint by the adapter itself. */
+export interface SchedulingProfile {budgets:readonly RateBudget[];budgetManagement?:'adapter';minUpdateIntervalMs:number;estimatedLatencyMs:number;recommendedPollIntervalMs:number}
 export type AdapterErrorCode = 'OFFLINE'|'UNSUPPORTED_CAPABILITY'|'OUT_OF_RANGE'|'AUTH_FAILED'|'RATE_LIMITED'|'TIMEOUT'|'CANCELED'|'TRANSPORT_ERROR';
 export class AdapterError extends Error {
   constructor(readonly code:AdapterErrorCode,message:string,readonly retryable=false,readonly delivery:'not_sent'|'unknown'|'acknowledged'='not_sent',readonly retryAfterMs?:number) {super(message);this.name='AdapterError';}
