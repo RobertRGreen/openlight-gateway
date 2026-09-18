@@ -9,6 +9,8 @@ import { MockAdapter } from '../adapters/mock/index.js';
 import { GoveeAdapter } from '../adapters/govee/index.js';
 import { GoveeCloudAdapter } from '../adapters/govee/cloud-adapter.js';
 import { NodeGoveeTransport, type GoveeTransport } from '../adapters/govee/transport.js';
+import { FeitAdapter, type FeitDeviceConfig } from '../adapters/feit/index.js';
+import { NodeFeitTransport, type FeitTransport } from '../adapters/feit/transport.js';
 import { DeviceRegistry } from '../core/devices/index.js';
 import { OperationService } from '../core/operations/index.js';
 import { RoomService } from '../core/rooms/index.js';
@@ -22,6 +24,7 @@ export interface CompositionOptions {
   logger?: Logger;
   deferReady?: boolean;
   goveeTransport?: GoveeTransport;
+  feitTransport?: FeitTransport;
 }
 
 /** The API layer owns its listener and can import these services independently. */
@@ -126,6 +129,33 @@ export async function createGateway(options: CompositionOptions = {}) {
         })();
         cleanup.push({ order: 15, run: () => startGoveeCloud });
       }
+    }
+    if (config.feitAdapterEnabled) {
+      const startFeit = (async () => {
+        let feit: FeitAdapter;
+        try {
+          const devices: unknown = JSON.parse(config.feitDevices);
+          if (!Array.isArray(devices) || devices.length === 0) throw new Error('Invalid Feit inventory');
+          feit = new FeitAdapter({
+            devices: devices as FeitDeviceConfig[],
+            transport: options.feitTransport ?? new NodeFeitTransport(),
+            // Leave time for Feit's response classification before the runtime deadline.
+            commandTimeoutMs: Math.max(1, config.adapterTimeoutMs - 25),
+            logger: { warn: message => logger.warn({ adapter: 'feit' }, message) },
+          });
+        } catch {
+          logger.error({ adapter: 'feit', errorCategory: 'configuration' }, 'FEIT_ADAPTER_ENABLED requires FEIT_DEVICES to be a non-empty JSON array of valid device configurations; Feit startup failed; other adapters and API remain available');
+          return;
+        }
+        try {
+          runtime.register(feit);
+          await runtime.connect(feit.id);
+          if (!shutdownStarted) await registry.discover(feit.id);
+        } catch {
+          if (!shutdownStarted) logger.error({ adapter: 'feit', errorCategory: 'startup' }, 'Feit startup failed; verify FEIT_DEVICES and protocol version 3.3; other adapters and API remain available');
+        }
+      })();
+      cleanup.push({ order: 15, run: () => startFeit });
     }
     let ready = false;
     const markReady = () => {
