@@ -73,7 +73,7 @@ describe('Feit manually configured Tuya adapter', () => {
   expect(await adapter.getCapabilities('bulb', context())).toHaveLength(2);
   await expect(adapter.setColor('bulb', { mode: 'rgb', value: { r: 0, g: 0, b: 0 } }, context())).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
  });
- it.each(['3.1', '3.4', '3.5'])('rejects protocol %s at discovery before yielding or sending', async version => {
+ it.each(['3.1', '3.2', '3.6'])('rejects protocol %s at discovery before yielding or sending', async version => {
   const transport = new FakeTransport(); const adapter = new FeitAdapter({ devices: [{ ...device, version }], transport });
   await expect(adapter.discover(context())[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY', message: expect.stringContaining(version) });
   expect(transport.contexts).toHaveLength(0);

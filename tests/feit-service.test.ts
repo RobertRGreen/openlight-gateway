@@ -62,7 +62,7 @@ it('isolates unsupported protocol startup while mock commands and API remain rea
   const logger = createLogger('silent');
   const error = vi.spyOn(logger, 'error');
   const transport = new ServiceTransport();
-  gateway = await createGateway({ config: enabled([{ ...device, version: '3.4' }]), logger, feitTransport: transport });
+  gateway = await createGateway({ config: enabled([{ ...device, version: '3.6' }]), logger, feitTransport: transport });
   await vi.waitFor(() => expect(error).toHaveBeenCalledWith({ adapter: 'feit', errorCategory: 'startup' }, expect.stringContaining('protocol version 3.3')));
   expect(transport.requests).toHaveLength(0);
   const mock = gateway.registry.list().find(item => item.model === 'rgb')!;

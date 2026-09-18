@@ -2,7 +2,7 @@ import { isIP } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AdapterError } from '../types.js';
 import type { AdapterDevice, AdapterEvent, CallContext, Capability, Color, DeviceState, LightingAdapter, Observation, SchedulingProfile, WriteReceipt } from '../types.js';
-import { CONTROL, DP_QUERY, decodeFrame, decodeQuery, encodeFrame, encodeQuery, encryptControl, hsvHexToRgb, rgbToHsvHex } from './protocol.js';
+import { CONTROL, DP_QUERY, DP_QUERY_NEW, decodeFrame, decodeQuery, encodeFrame, encodeQuery, encryptControl, hsvHexToRgb, rgbToHsvHex, hsvJsonToRgb, rgbToHsvJson } from './protocol.js';
 import type { FeitTransport } from './transport.js';
 
 export interface FeitDpsMap {
@@ -12,19 +12,20 @@ export interface FeitDpsMap {
  colour?: string | null;
  colorTemperature?: { id?: string; rawMinimum?: number; rawMaximum?: number; minimumKelvin?: number; maximumKelvin?: number; step?: number } | null;
 }
-export interface FeitDeviceConfig { id: string; name: string; ip: string; localKey: string; version: string; dpsMap?: FeitDpsMap }
+export interface FeitDeviceConfig { id: string; name: string; ip: string; localKey: string; version: '3.3' | '3.4' | '3.5'; dpsMap?: FeitDpsMap }
 export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void } }
 type Range = { id: string; minimum: number; maximum: number; step: number };
 type Temperature = Range & { minimumKelvin: number; maximumKelvin: number };
-type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; brightness: Range; colour: string | null; temperature: Temperature | undefined };
+type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined };
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const dp = (value: unknown): value is string => typeof value === 'string' && /^[1-9][0-9]{0,4}$/.test(value);
 const within = (value: unknown, range: Range): value is number => typeof value === 'number' && Number.isInteger(value) && value >= range.minimum && value <= range.maximum && (value - range.minimum) % range.step === 0;
 const validRange = (range: Range) => dp(range.id) && [range.minimum, range.maximum, range.step].every(Number.isSafeInteger) && range.minimum >= 0 && range.maximum > range.minimum && range.step > 0 && (range.maximum - range.minimum) % range.step === 0;
 const invalid = (): never => { throw new AdapterError('OUT_OF_RANGE', 'Invalid Feit manual device configuration'); };
+const matchingColour = (actual: unknown, expected: unknown): boolean => object(actual) && object(expected) && ['h', 's', 'v'].every(channel => actual[channel] === expected[channel]);
 const quantize = (value: number, range: Range) => Math.max(range.minimum, Math.min(range.maximum, range.minimum + Math.round((value - range.minimum) / range.step) * range.step));
 
-/** Manually configured Tuya v3.3 devices only; no discovery traffic or cloud credentials. */
+/** Manually configured Tuya v3.3/v3.4/v3.5 devices; no discovery traffic or cloud credentials. */
 export class FeitAdapter implements LightingAdapter {
  readonly id = 'feit';
  readonly scheduling: SchedulingProfile = { budgets: [{ scope: 'adapter', key: 'feit', maxRequests: 20, windowMs: 1000, burst: 5, maxConcurrent: 2 }], minUpdateIntervalMs: 100, estimatedLatencyMs: 100, recommendedPollIntervalMs: 30000 };
@@ -79,7 +80,7 @@ export class FeitAdapter implements LightingAdapter {
  private emit(event: AdapterEvent): void { for (const listener of this.listeners) { try { listener(structuredClone(event)); } catch { /* Consumer isolation. */ } } }
  private check(context: CallContext): void { if (!Number.isFinite(context.deadlineAt)) throw new AdapterError('OUT_OF_RANGE', 'Invalid Feit call deadline'); if (context.signal.aborted) throw new AdapterError('CANCELED', 'Feit call canceled'); if (context.deadlineAt <= Date.now()) throw new AdapterError('TIMEOUT', 'Feit deadline exceeded', true); }
  private version(entry: Entry): void {
-  if (entry.config.version !== '3.3') throw new AdapterError('UNSUPPORTED_CAPABILITY', `Unsupported Feit Tuya protocol version ${/^[0-9]+(?:\.[0-9]+){1,2}$/.test(entry.config.version) ? entry.config.version : '[redacted]'}; only 3.3 is supported`);
+  if (!['3.3', '3.4', '3.5'].includes(entry.config.version)) throw new AdapterError('UNSUPPORTED_CAPABILITY', `Unsupported Feit Tuya protocol version ${/^[0-9]+(?:\.[0-9]+){1,2}$/.test(entry.config.version) ? entry.config.version : '[redacted]'}; supported versions are 3.3, 3.4, and 3.5`);
  }
  private entry(id: string, context: CallContext): Entry { this.check(context); const entry = this.entries.get(id); if (!entry) throw new AdapterError('OFFLINE', 'Unknown Feit device', true); this.version(entry); return entry; }
  async connect(context: CallContext): Promise<void> { this.check(context); this.connected = true; this.emit({ type: 'connection', connected: true }); }
@@ -128,20 +129,29 @@ export class FeitAdapter implements LightingAdapter {
   try {
    return await this.bounded({ ...context, deadlineAt }, async signal => {
     const id = entry.config.id;
-    const preceding = expected ? encodeFrame(this.sequence = (this.sequence + 1) >>> 0, CONTROL, encryptControl({ devId: id, uid: id, t: String(Math.floor(Date.now() / 1000)), dps: expected }, entry.config.localKey)) : undefined;
+    const control = expected ? { sequence: this.sequence = (this.sequence + 1) >>> 0, payload: entry.config.version === '3.3' ? { devId: id, uid: id, t: String(Math.floor(Date.now() / 1000)), dps: expected } : { protocol: 5, t: Math.floor(Date.now() / 1000), data: { dps: expected } } } : undefined;
+    const preceding = entry.config.version === '3.3' && control ? encodeFrame(control.sequence, CONTROL, encryptControl(control.payload, entry.config.localKey)) : undefined;
     for (let attempt = 0; attempt < (expected ? 2 : 1); attempt++) {
      const queryContext = { ...context, signal, deadlineAt: expected && attempt === 0 ? halfway : deadlineAt };
      const sequence = this.sequence = (this.sequence + 1) >>> 0;
-     const packet = encodeFrame(sequence, DP_QUERY, encodeQuery({ devId: id, uid: id, t: String(Math.floor(Date.now() / 1000)) }));
+     const queryPayload = entry.config.version === '3.3' ? { devId: id, uid: id, t: String(Math.floor(Date.now() / 1000)) } : {};
+     const queryCommand = entry.config.version === '3.3' ? DP_QUERY : DP_QUERY_NEW;
+     const querySequence = entry.config.version === '3.3' ? sequence : (sequence + 2 + (attempt === 0 && control ? 1 : 0)) >>> 0;
+     const packet = encodeFrame(sequence, DP_QUERY, encodeQuery(queryPayload));
      try {
-      const response = await this.bounded(queryContext, querySignal => this.transport.request(entry.config.ip, packet, { signal: querySignal, deadlineAt: queryContext.deadlineAt }, attempt === 0 ? preceding : undefined));
+      const frame = await this.bounded(queryContext, async querySignal => {
+       const requestContext = { signal: querySignal, deadlineAt: queryContext.deadlineAt };
+       if (entry.config.version === '3.3') return decodeFrame(await this.transport.request(entry.config.ip, packet, requestContext, attempt === 0 ? preceding : undefined));
+       if (!this.transport.requestSession || (entry.config.version !== '3.4' && entry.config.version !== '3.5')) throw new Error();
+       return this.transport.requestSession(entry.config.ip, { version: entry.config.version, localKey: entry.config.localKey, sequence, queryPayload, ...(attempt === 0 && control ? { preceding: { payload: control.payload } } : {}) }, requestContext);
+      });
       if (signal.aborted) throw new AdapterError('CANCELED', 'Feit call canceled');
-      const frame = decodeFrame(response); if (frame.command !== DP_QUERY || frame.sequence !== sequence) throw new Error();
+      if (frame.command !== queryCommand || (entry.config.version !== '3.5' && frame.sequence !== querySequence)) throw new Error();
       responded = true;
       const { observation, dps } = this.parse(entry, frame.payload);
       this.emit({ type: 'availability', nativeId: id, status: 'online' });
       this.emit({ type: 'observation', nativeId: id, observation });
-      if (!expected || Object.entries(expected).every(([dpId, value]) => dps[dpId] === value)) return structuredClone(observation);
+      if (!expected || Object.entries(expected).every(([dpId, value]) => dps[dpId] === value || (dpId === entry.colour && matchingColour(dps[dpId], value)))) return structuredClone(observation);
      } catch (error) {
       const failure = this.failure(error);
       if (!['TIMEOUT', 'OFFLINE'].includes(failure.code)) throw failure;
@@ -163,7 +173,24 @@ export class FeitAdapter implements LightingAdapter {
    const brightness = dps[entry.brightness.id];
    if (within(brightness, entry.brightness)) state.brightness = Math.round((brightness - entry.brightness.minimum) * 100 / (entry.brightness.maximum - entry.brightness.minimum));
    const mode = dps[entry.workMode];
-   if (entry.colour && mode === 'colour' && typeof dps[entry.colour] === 'string') state.rgb = hsvHexToRgb(dps[entry.colour] as string);
+   if (entry.colour) {
+    const colour = dps[entry.colour];
+    try {
+     // Learn valid product codecs in white mode without treating stale colour as state.
+     if (typeof colour === 'string') {
+      const rgb = hsvHexToRgb(colour);
+      if (mode === 'colour') state.rgb = rgb;
+      entry.colourEncoding = 'hex';
+     } else if (object(colour)) {
+      const rgb = hsvJsonToRgb(colour);
+      if (mode === 'colour') state.rgb = rgb;
+      entry.colourEncoding = 'json';
+     }
+    } catch (error) {
+     if (mode === 'colour') throw error;
+     // Invalid inactive colour must not invalidate a usable white-mode observation.
+    }
+   }
    if (entry.temperature && mode === 'white') {
     const range = entry.temperature; const raw = dps[range.id];
     if (within(raw, range)) state.colorTemperature = Math.round(range.minimumKelvin + (raw - range.minimum) * (range.maximumKelvin - range.minimumKelvin) / (range.maximum - range.minimum));
@@ -186,7 +213,9 @@ export class FeitAdapter implements LightingAdapter {
  async setColor(id: string, color: Color, context: CallContext): Promise<WriteReceipt> {
   const entry = this.entry(id, context); if (!entry.colour || !object(color) || color.mode !== 'rgb') throw new AdapterError('UNSUPPORTED_CAPABILITY', 'Feit device supports no requested color capability');
   if (!object(color.value) || ![color.value.r, color.value.g, color.value.b].every(value => Number.isInteger(value) && value >= 0 && value <= 255)) throw new AdapterError('OUT_OF_RANGE', 'RGB channels must be integer bytes');
-  return this.control(entry, { [entry.workMode]: 'colour', [entry.colour]: rgbToHsvHex(color.value) }, context);
+  if (!entry.colourEncoding) await this.status(entry, context);
+  if (!entry.colourEncoding) throw new AdapterError('TRANSPORT_ERROR', 'Feit colour encoding was not returned by the device', true, 'not_sent');
+  return this.control(entry, { [entry.workMode]: 'colour', [entry.colour]: entry.colourEncoding === 'json' ? rgbToHsvJson(color.value) : rgbToHsvHex(color.value) }, context);
  }
  async setTemperature(id: string, kelvin: number, context: CallContext): Promise<WriteReceipt> {
   const entry = this.entry(id, context); const range = entry.temperature;

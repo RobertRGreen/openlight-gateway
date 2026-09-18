@@ -152,7 +152,7 @@ export async function createGateway(options: CompositionOptions = {}) {
           await runtime.connect(feit.id);
           if (!shutdownStarted) await registry.discover(feit.id);
         } catch {
-          if (!shutdownStarted) logger.error({ adapter: 'feit', errorCategory: 'startup' }, 'Feit startup failed; verify FEIT_DEVICES and protocol version 3.3; other adapters and API remain available');
+          if (!shutdownStarted) logger.error({ adapter: 'feit', errorCategory: 'startup' }, 'Feit startup failed; verify FEIT_DEVICES and protocol version 3.3, 3.4, or 3.5; other adapters and API remain available');
         }
       })();
       cleanup.push({ order: 15, run: () => startFeit });

@@ -2,7 +2,7 @@
 
 OpenLight is a standalone, local-first lighting API. It lets automation and PC RGB clients control lights through a shared device, capability, command, and event model. It has no GUI.
 
-The default backend is the **mock adapter**: five simulated devices demonstrate RGB, tunable white, dimmable white, RGBW, and offline behavior. An opt-in **Govee LAN adapter** implements UDP discovery and control; independent hardware verification is pending. A separate opt-in **Govee Cloud adapter** supports devices available through the official Developer API, including bulbs without LAN Control. Feit Electric and Hubspace/Afero are not implemented. The REST API, authenticated WebSocket events, SQLite persistence, rooms, groups, scenes, and operation results use the existing core. Static and pulse effects execute; the other catalog entries are planned and return `effect_not_implemented`.
+The default backend is the **mock adapter**: five simulated devices demonstrate RGB, tunable white, dimmable white, RGBW, and offline behavior. An opt-in **Govee LAN adapter** implements UDP discovery and control; independent hardware verification is pending (the maintainer's own Govee bulbs don't support the LAN API). A separate opt-in **Govee Cloud adapter** supports devices available through the official Developer API, including bulbs without LAN Control. An opt-in **Feit Electric adapter** speaks Tuya's local protocol directly (versions 3.3, 3.4, and 3.5) — **hardware-verified**: discovery, state readback, power, brightness, and RGB color have all been confirmed working against a real Feit bulb (Tuya protocol 3.5). Hubspace/Afero is not implemented. The REST API, authenticated WebSocket events, SQLite persistence, rooms, groups, scenes, and operation results use the existing core. Static and pulse effects execute; the other catalog entries are planned and return `effect_not_implemented`.
 
 ## Architecture
 
@@ -131,6 +131,20 @@ Capabilities come from each device's API response: power, brightness with its ac
 
 Cloud requests require internet access and use separate limits: control 12 requests/second/account with burst 80, state 30 requests/minute/device, and discovery 30 requests/minute/account with burst 30. A device state response reporting offline produces an offline availability update and an `OFFLINE` error; its cached values are not returned as a fresh observation. Tests mock HTTP; live hardware acceptance and Claude's independent review remain pending. See [manufacturer research](docs/DEVICE-RESEARCH.md).
 
+### Feit Electric (Tuya local) setup
+
+Feit bulbs are unbranded Tuya hardware with no protocol of their own, so this adapter speaks Tuya's local protocol directly — no cloud dependency at runtime, no network discovery. You extract each device's credentials once, outside this repo, using the community `tinytuya wizard` tool (requires a free Tuya IoT Platform developer account and re-pairing one bulb into Tuya's own "Smart Life" app to link it): it writes a `devices.json` with each device's `id`, `key` (local key), `ip`, and `version`.
+
+Configure devices via `FEIT_DEVICES`, a JSON array of `{id, name, ip, localKey, version, dpsMap?}`:
+
+```sh
+FEIT_ADAPTER_ENABLED=true FEIT_DEVICES='[{"id":"...","name":"Bedroom Lamp","ip":"192.168.1.50","localKey":"...","version":"3.5"}]' npm run dev
+```
+
+`version` must be `"3.3"`, `"3.4"`, or `"3.5"` — anything else is rejected outright rather than guessed at. `dpsMap` lets you override the data-point numbering/ranges for products that don't match the common defaults (power=DP20, mode=DP21, brightness=DP22 range 10–1000, colour=DP24); colour temperature is only advertised as a capability when you supply both a calibrated raw range and a real Kelvin range — there's no fabricated default. Colour encoding (legacy hex string vs newer JSON `{h,s,v}`) is auto-detected per device at read time, no configuration needed.
+
+**Hardware-verified (2026-09-18):** discovery, capability reporting, state readback, `setPower`, `setBrightness`, and `setColor` were all confirmed working end-to-end against a real Feit RGBCW bulb on protocol 3.5 — every write was verified by reading the resulting device state back and matching the requested value exactly. Versions 3.3 and 3.4 are implemented against the same protocol family but not yet confirmed against real 3.3/3.4 hardware.
+
 Localhost is the default, not an authentication bypass. Host validation, explicit browser Origins, bounded bodies and queues, request budgets, and token verification protect the API. LAN binding requires `BIND_MODE=lan` plus gateway TLS (`TLS_MODE=gateway`, certificate/key paths) or an explicitly trusted TLS proxy (`TLS_MODE=proxy`, `TRUSTED_PROXIES`). Set `ALLOWED_HOSTS` to the intended hostname(s); enable `MDNS_ENABLED=true` only deliberately. Manufacturer credentials do not belong in normalized state or logs. See [security](docs/SECURITY.md).
 
 ## Development and installation
@@ -146,4 +160,4 @@ The [systemd user unit](docs/openlight-gateway.service) includes installation in
 
 ## Roadmap
 
-Phase 1 is the merged mock-backed gateway. Govee LAN is the first real adapter implementation, awaiting independent hardware acceptance. Later work adds hardware-tested Feit/Hubspace adapters, local standards and bridges, then PC RGB coordination and richer effects. Scoped tokens and durable event replay are future work. See [the roadmap](docs/ROADMAP.md).
+Phase 1 is the merged mock-backed gateway. Govee LAN, Govee Cloud, and Feit Electric (Tuya local) are implemented; Feit is hardware-verified, Govee LAN awaits LAN-capable hardware, Govee Cloud awaits a live-verified run with a real API key. Later work adds Hubspace, local standards and bridges, then PC RGB coordination and richer effects. Scoped tokens and durable event replay are future work. See [the roadmap](docs/ROADMAP.md).
