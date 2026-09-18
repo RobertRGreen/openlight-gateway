@@ -107,7 +107,7 @@ After fetching snapshots, apply newer device-state revisions from the buffer; re
 
 ## Adapters and security
 
-Adapters implement discovery, transport, capabilities, observation, and writes. The core uses their shared interface rather than manufacturer branches. Adding a manufacturer requires protocol research, truthful capability mapping, bounded transport calls, and conformance tests; see [adding adapters](docs/ADAPTERS.md).
+Adapters implement discovery, transport, capabilities, observation, and writes. The core uses their shared interface rather than manufacturer branches. Adding a manufacturer requires protocol research, truthful capability mapping, bounded transport calls, and conformance tests; see [adding adapters](docs/ADAPTERS.md). To consume this API from another application (a PC RGB controller, home automation script, etc.), see [integration guide](docs/INTEGRATION.md) — REST/WebSocket walkthroughs, error handling, and a complete reference Python client, verified live against a running gateway.
 
 ### Govee LAN setup
 
