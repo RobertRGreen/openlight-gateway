@@ -20,7 +20,7 @@ npm run dev
 The default address is `http://localhost:3000` (bound to `127.0.0.1`), the database is `./data/openlight.sqlite`, and mDNS is off. **All routes require a Bearer token, including localhost and health.** In another terminal, create a local token using the same database and configuration. Capture it without writing the literal token into shell history:
 
 ```sh
-export OPENLIGHT_TOKEN="$(node --import tsx src/service/token.ts create)"
+export OPENLIGHT_TOKEN="$(node --env-file-if-exists=.env --import tsx src/service/token.ts create)"
 auth_config() { printf 'header = "Authorization: Bearer %s"\n' "$OPENLIGHT_TOKEN"; }
 auth_config | curl --config - http://localhost:3000/api/v1/health
 auth_config | curl --config - http://localhost:3000/api/v1/devices
@@ -117,13 +117,15 @@ For each supported device, manually enable **LAN Control** in the official Govee
 GOVEE_ADAPTER_ENABLED=true npm run dev
 ```
 
+(Or set `GOVEE_ADAPTER_ENABLED=true` in `.env` for it to persist across restarts — see `.env.example`.)
+
 Startup discovery sends the scan to `239.255.255.250:4001`, receives responses on UDP port `4002`, and sends device commands to each device's IP on UDP port `4003`. Permit these ports through the host/network firewall. `GOVEE_DISCOVERY_TIMEOUT_MS` defaults to 1500 milliseconds and is bounded by `ADAPTER_TIMEOUT_MS`. Discovery runs in the background so its deadline or a socket failure does not delay mock/API readiness. Restart the gateway to repeat startup discovery after enabling LAN Control or changing the network.
 
 Govee LAN devices advertise only power, brightness (0–100%), and RGB color. Color temperature, effects, transitions, and segments are not exposed by this LAN integration, even when available in Govee's app. State is read with `devStatus`; writes and observations remain subject to UDP loss and device availability. Tests use an injected fake transport; live hardware acceptance is pending Claude's independent review.
 
 ### Govee Cloud setup
 
-Obtain a Developer API key through the Govee Home app and set `GOVEE_API_KEY` in your process environment. `npm run dev` does not automatically load `.env` files. Enable `GOVEE_CLOUD_ADAPTER_ENABLED=true` (default `false`) and restart the gateway. The flag requires a non-empty key; missing credentials produce a clear startup error while mock/API/LAN readiness remains available. Cloud discovery runs in the background and queries the account's device list once at startup. Cloud startup failures remain isolated from the other adapters.
+Obtain a Developer API key through the Govee Home app and set `GOVEE_API_KEY` in `.env` (copy from `.env.example` if you haven't already — `npm run dev`/`npm start` load it automatically via Node's `--env-file-if-exists`). Enable `GOVEE_CLOUD_ADAPTER_ENABLED=true` (default `false`) and restart the gateway. The flag requires a non-empty key; missing credentials produce a clear startup error while mock/API/LAN readiness remains available. Cloud discovery runs in the background and queries the account's device list once at startup. Cloud startup failures remain isolated from the other adapters.
 
 This is a separate adapter identity, `govee-cloud`; LAN retains `govee` and does not require an API key. Devices without a LAN Control toggle can use the cloud adapter if the Developer API lists them. **Known limitation:** enabling both adapters can register the same physical bulb twice, once under each adapter identity; there is no cross-adapter deduplication.
 
@@ -140,6 +142,8 @@ Configure devices via `FEIT_DEVICES`, a JSON array of `{id, name, ip, localKey, 
 ```sh
 FEIT_ADAPTER_ENABLED=true FEIT_DEVICES='[{"id":"...","name":"Bedroom Lamp","ip":"192.168.1.50","localKey":"...","version":"3.5"}]' npm run dev
 ```
+
+For a persistent setup, put both in `.env` instead (loaded automatically by `npm run dev`/`npm start`) — **wrap `FEIT_DEVICES` in single quotes there**: a local key is a random string that can contain a literal `#`, which Node's `.env` parser otherwise treats as a comment and silently truncates the value. See `.env.example`.
 
 `version` must be `"3.3"`, `"3.4"`, or `"3.5"` — anything else is rejected outright rather than guessed at. `dpsMap` lets you override the data-point numbering/ranges for products that don't match the common defaults (power=DP20, mode=DP21, brightness=DP22 range 10–1000, colour=DP24); colour temperature is only advertised as a capability when you supply both a calibrated raw range and a real Kelvin range — there's no fabricated default. Colour encoding (legacy hex string vs newer JSON `{h,s,v}`) is auto-detected per device at read time, no configuration needed.
 
