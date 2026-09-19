@@ -70,11 +70,16 @@ export class OperationService {
       }
       const observations:DeviceState={};
       for(const call of calls){try{if(opts.signal?.aborted)throw new AdapterError('CANCELED','Canceled');const receipt=await this.runtime.call(adapter.id,operationId,nativeId,call.call,opts.signal?{signal:opts.signal}:{});result.transport=receipt.transport;result.confirmation='acknowledged';for(const path of call.paths)result.fieldResults.push({path,status:'applied'});if(receipt.observation){this.registry.observe(device.id,receipt.observation,operationId);Object.assign(observations,receipt.observation.state);}this.registry.completeWrite(device.id);}catch(error){result.transport??=device.address?.transport??null;if(error instanceof AdapterError&&error.delivery==='unknown')result.confirmation='unconfirmed';for(const path of call.paths)result.fieldResults.push({path,status:error instanceof AdapterError&&error.delivery==='unknown'?'unconfirmed':'failed'});throw error;}}
-      const matches=(actual:DeviceState)=>Object.entries(state).every(([key,value])=>isDeepStrictEqual(actual[key as keyof DeviceState],value));
+      const fieldMatches=(key:string,actual:unknown,expected:unknown):boolean=>{
+        if(key!=='rgb'&&key!=='rgbw'&&key!=='rgbww')return isDeepStrictEqual(actual,expected);
+        if(!actual||!expected||typeof actual!=='object'||typeof expected!=='object'||Array.isArray(actual)||Array.isArray(expected))return false;
+        return Object.keys(actual).length===Object.keys(expected).length&&Object.entries(expected).every(([channel,value])=>Object.hasOwn(actual,channel)&&typeof value==='number'&&typeof (actual as Record<string,unknown>)[channel]==='number'&&Math.abs((actual as Record<string,number>)[channel]!-value)<=2);
+      };
+      const matches=(actual:DeviceState)=>Object.entries(state).every(([key,value])=>fieldMatches(key,actual[key as keyof DeviceState],value));
       if(matches(observations))result.confirmation='observed';else {
         await this.registry.refresh(device.id);const actual=this.registry.get(device.id);
         if(!actual.stateStale&&matches(actual.state))result.confirmation='observed';
-        else if(!actual.stateStale&&Object.entries(state).some(([key,value])=>key in actual.state&&!isDeepStrictEqual(actual.state[key as keyof DeviceState],value)))throw new GatewayError(409,'state_mismatch','Observed state differs from requested state',[],opts.requestId);
+        else if(!actual.stateStale&&Object.entries(state).some(([key,value])=>key in actual.state&&!fieldMatches(key,actual.state[key as keyof DeviceState],value)))throw new GatewayError(409,'state_mismatch','Observed state differs from requested state',[],opts.requestId);
       }
       result.state=this.registry.get(device.id).state;
       if(result.warnings.length){result.status='degraded';result.fieldResults.push({path:'/transitionMs',status:'omitted',reason:'unsupported_transition'});}
