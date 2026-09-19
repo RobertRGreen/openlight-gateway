@@ -113,20 +113,29 @@ export function rgbToHsvJson(rgb: RGB): HsvJson {
   return { h: Math.round(hue), s: Math.round(max === 0 ? 0 : delta / max * 1000), v: Math.round(max * 1000) };
 }
 
-export function hsvHexToRgb(hex: string): RGB {
+export function hsvHexToHsv(hex: string): HsvJson {
   if (typeof hex !== 'string' || !/^[\da-f]{12}$/i.test(hex)) throw new Error('Invalid Tuya HSV colour data');
   const h = Number.parseInt(hex.slice(0, 4), 16), s = Number.parseInt(hex.slice(4, 8), 16), v = Number.parseInt(hex.slice(8), 16);
-  return hsvJsonToRgb({ h, s, v });
+  return hsvJsonToHsv({ h, s, v });
 }
 
-export function hsvJsonToRgb(value: unknown): RGB {
+export function hsvJsonToHsv(value: unknown): HsvJson {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid Tuya HSV colour data');
   const { h, s, v } = value as HsvJson;
   if (![h, s, v].every(channel => typeof channel === 'number' && Number.isFinite(channel)) || h < 0 || h > 360 || s < 0 || s > 1000 || v < 0 || v > 1000) throw new Error('Invalid Tuya HSV colour range');
+  return { h, s, v };
+}
+
+export function hsvToRgb(hsv: HsvJson): RGB {
+  const { h, s, v } = hsv;
   const chroma = v / 1000 * s / 1000, sector = h % 360 / 60, x = chroma * (1 - Math.abs(sector % 2 - 1)), m = v / 1000 - chroma;
   const channels = sector < 1 ? [chroma, x, 0] : sector < 2 ? [x, chroma, 0] : sector < 3 ? [0, chroma, x] : sector < 4 ? [0, x, chroma] : sector < 5 ? [x, 0, chroma] : [chroma, 0, x];
   return { r: Math.round((channels[0]! + m) * 255), g: Math.round((channels[1]! + m) * 255), b: Math.round((channels[2]! + m) * 255) };
 }
+
+export function hsvHexToRgb(hex: string): RGB { return hsvToRgb(hsvHexToHsv(hex)); }
+
+export function hsvJsonToRgb(value: unknown): RGB { return hsvToRgb(hsvJsonToHsv(value)); }
 
 export type SessionVersion = '3.4' | '3.5';
 export const SESS_KEY_NEG_START = 0x03;

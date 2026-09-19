@@ -38,7 +38,9 @@ describe('Feit manually configured Tuya adapter', () => {
   const { adapter } = await setup();
   adapter.onEvent(event => { if (event.type === 'observation') event.observation.state.power = false; });
   const result = await adapter.getState('bulb', context());
-  expect(result).toMatchObject({ state: { power: true, brightness: 50, rgb: { r: 255, g: 0, b: 0 } }, complete: true });
+  // Colour mode (workMode '21') sources brightness from the HSV "v" channel (default
+  // fixture v=1000, full brightness) -- DP22's stale 505 is white-mode-only state.
+  expect(result).toMatchObject({ state: { power: true, brightness: 100, rgb: { r: 255, g: 0, b: 0 } }, complete: true });
   expect(result.nativeSequence).toBeUndefined(); expect(Number.isNaN(Date.parse(result.observedAt))).toBe(false);
  });
  it('normalizes overridden DPS and calibrated temperature, excludes stale colour in white mode', async () => {
@@ -60,11 +62,14 @@ describe('Feit manually configured Tuya adapter', () => {
  it('writes encrypted CONTROL with required identity, time, work mode, and HSV DPs', async () => {
   const { adapter, transport } = await setup();
   expect(await adapter.setPower('bulb', false, context())).toMatchObject({ transport: 'lan', acknowledgment: 'applied', observation: { state: { power: false } } });
+  // Already-known colour mode: brightness is deferred into the next colour write's HSV
+  // "v" channel instead of forcing an intermediate white-mode DP write that would flash
+  // the bulb white before the colour write lands.
   await adapter.setBrightness('bulb', 50, context());
+  expect(transport.writes).toHaveLength(1);
   await adapter.setColor('bulb', { mode: 'rgb', value: { r: 0, g: 255, b: 0 } }, context());
   expect(transport.writes[0]).toMatchObject({ devId: 'bulb', uid: 'bulb', t: expect.stringMatching(/^\d+$/), dps: { '20': false } });
-  expect(transport.writes[1]!.dps).toEqual({ '21': 'white', '22': 505 });
-  expect(transport.writes[2]!.dps).toEqual({ '21': 'colour', '24': '007803e803e8' });
+  expect(transport.writes[1]!.dps).toEqual({ '21': 'colour', '24': '007803e801f4' });
   await expect(adapter.setBrightness('bulb', 101, context())).rejects.toMatchObject({ code: 'OUT_OF_RANGE' });
   await expect(adapter.setColor('bulb', { mode: 'rgb', value: { r: -1, g: 0, b: 0 } }, context())).rejects.toMatchObject({ code: 'OUT_OF_RANGE' });
  });
@@ -84,7 +89,11 @@ describe('Feit manually configured Tuya adapter', () => {
   expect(transport.contexts[0]!.signal.aborted).toBe(true); expect(request).toHaveBeenCalledTimes(2);
  });
  it('retries only DP_QUERY after mismatched state and requires exact raw work mode', async () => {
-  const { adapter, transport } = await setup();
+  // White mode already known, so setBrightness still writes directly (the write/retry
+  // path under test), instead of deferring into a colour write.
+  const transport = new FakeTransport(); transport.dps = { ...transport.dps, '21': 'white' };
+  const { adapter } = await setup(device, transport);
+  await adapter.getState('bulb', context());
   let controls = 0; let queries = 0;
   vi.spyOn(transport, 'request').mockImplementation(async (_ip, packet, _ctx, preceding) => {
    queries++; if (preceding) controls++;
@@ -105,7 +114,9 @@ describe('Feit manually configured Tuya adapter', () => {
   expect(controls).toBe(1); expect(queries).toBe(2);
  });
  it('does not round mismatching raw brightness into a successful write', async () => {
-  const { adapter, transport } = await setup();
+  const transport = new FakeTransport(); transport.dps = { ...transport.dps, '21': 'white' };
+  const { adapter } = await setup(device, transport);
+  await adapter.getState('bulb', context());
   vi.spyOn(transport, 'request').mockImplementation(async (_ip, packet) => {
    const frame = decodeFrame(packet); return encodeFrame(frame.sequence, frame.command, encodeQuery({ dps: { '20': true, '21': 'white', '22': 506 } }));
   });

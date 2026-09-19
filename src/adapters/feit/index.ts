@@ -2,7 +2,7 @@ import { isIP } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AdapterError } from '../types.js';
 import type { AdapterDevice, AdapterEvent, CallContext, Capability, Color, DeviceState, LightingAdapter, Observation, SchedulingProfile, WriteReceipt } from '../types.js';
-import { CONTROL, DP_QUERY, DP_QUERY_NEW, decodeFrame, decodeQuery, encodeFrame, encodeQuery, encryptControl, hsvHexToRgb, rgbToHsvHex, hsvJsonToRgb, rgbToHsvJson } from './protocol.js';
+import { CONTROL, DP_QUERY, DP_QUERY_NEW, decodeFrame, decodeQuery, encodeFrame, encodeQuery, encryptControl, hsvHexToHsv, hsvJsonToHsv, hsvToRgb, rgbToHsvJson } from './protocol.js';
 import type { FeitTransport } from './transport.js';
 
 export interface FeitDpsMap {
@@ -16,7 +16,7 @@ export interface FeitDeviceConfig { id: string; name: string; ip: string; localK
 export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void } }
 type Range = { id: string; minimum: number; maximum: number; step: number };
 type Temperature = Range & { minimumKelvin: number; maximumKelvin: number };
-type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined };
+type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined; mode?: 'colour' | 'white'; pendingBrightness?: number };
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const dp = (value: unknown): value is string => typeof value === 'string' && /^[1-9][0-9]{0,4}$/.test(value);
 const within = (value: unknown, range: Range): value is number => typeof value === 'number' && Number.isInteger(value) && value >= range.minimum && value <= range.maximum && (value - range.minimum) % range.step === 0;
@@ -173,17 +173,23 @@ export class FeitAdapter implements LightingAdapter {
    const brightness = dps[entry.brightness.id];
    if (within(brightness, entry.brightness)) state.brightness = Math.round((brightness - entry.brightness.minimum) * 100 / (entry.brightness.maximum - entry.brightness.minimum));
    const mode = dps[entry.workMode];
+   if (mode === 'colour' || mode === 'white') entry.mode = mode;
    if (entry.colour) {
     const colour = dps[entry.colour];
     try {
      // Learn valid product codecs in white mode without treating stale colour as state.
      if (typeof colour === 'string') {
-      const rgb = hsvHexToRgb(colour);
-      if (mode === 'colour') state.rgb = rgb;
+      const hsv = hsvHexToHsv(colour);
+      // Colour mode has no independent brightness DP: "v" is the only brightness signal,
+      // and DP22 (entry.brightness) is stale/inapplicable while colour mode is active.
+      // rgb stays a full-scale hue/saturation value (v normalized to max) so it round-trips
+      // against a caller's requested rgb regardless of brightness; the real intensity is
+      // reported separately via brightness.
+      if (mode === 'colour') { state.rgb = hsvToRgb({ ...hsv, v: 1000 }); state.brightness = Math.round(hsv.v / 10); }
       entry.colourEncoding = 'hex';
      } else if (object(colour)) {
-      const rgb = hsvJsonToRgb(colour);
-      if (mode === 'colour') state.rgb = rgb;
+      const hsv = hsvJsonToHsv(colour);
+      if (mode === 'colour') { state.rgb = hsvToRgb({ ...hsv, v: 1000 }); state.brightness = Math.round(hsv.v / 10); }
       entry.colourEncoding = 'json';
      }
     } catch (error) {
@@ -207,6 +213,13 @@ export class FeitAdapter implements LightingAdapter {
  async setPower(id: string, on: boolean, context: CallContext): Promise<WriteReceipt> { const entry = this.entry(id, context); if (typeof on !== 'boolean') throw new AdapterError('OUT_OF_RANGE', 'Power must be boolean'); return this.control(entry, { [entry.power]: on }, context); }
  async setBrightness(id: string, percent: number, context: CallContext): Promise<WriteReceipt> {
   const entry = this.entry(id, context); if (!Number.isInteger(percent) || percent < 0 || percent > 100) throw new AdapterError('OUT_OF_RANGE', 'Brightness must be an integer from 0 to 100');
+  entry.pendingBrightness = percent;
+  // Colour mode has no independent brightness DP -- it rides the HSV "v" channel
+  // written by setColor. Forcing white mode here just to write DP22 briefly flashes
+  // the bulb white before a same-batch setColor restores the intended hue (unknown
+  // mode is treated as "don't force white" too, since this adapter's devices are
+  // used in colour mode far more often than white).
+  if (entry.mode !== 'white') { const observation = await this.status(entry, context); return structuredClone({ transport: 'lan', acknowledgment: 'applied', observation }); }
   const raw = quantize(entry.brightness.minimum + percent * (entry.brightness.maximum - entry.brightness.minimum) / 100, entry.brightness);
   return this.control(entry, { [entry.workMode]: 'white', [entry.brightness.id]: raw }, context);
  }
@@ -215,7 +228,10 @@ export class FeitAdapter implements LightingAdapter {
   if (!object(color.value) || ![color.value.r, color.value.g, color.value.b].every(value => Number.isInteger(value) && value >= 0 && value <= 255)) throw new AdapterError('OUT_OF_RANGE', 'RGB channels must be integer bytes');
   if (!entry.colourEncoding) await this.status(entry, context);
   if (!entry.colourEncoding) throw new AdapterError('TRANSPORT_ERROR', 'Feit colour encoding was not returned by the device', true, 'not_sent');
-  return this.control(entry, { [entry.workMode]: 'colour', [entry.colour]: entry.colourEncoding === 'json' ? rgbToHsvJson(color.value) : rgbToHsvHex(color.value) }, context);
+  const hsv = rgbToHsvJson(color.value);
+  if (entry.pendingBrightness !== undefined) hsv.v = Math.max(0, Math.min(1000, Math.round(entry.pendingBrightness * 10)));
+  const payload = entry.colourEncoding === 'json' ? hsv : [hsv.h, hsv.s, hsv.v].map(value => value.toString(16).padStart(4, '0')).join('');
+  return this.control(entry, { [entry.workMode]: 'colour', [entry.colour]: payload }, context);
  }
  async setTemperature(id: string, kelvin: number, context: CallContext): Promise<WriteReceipt> {
   const entry = this.entry(id, context); const range = entry.temperature;
