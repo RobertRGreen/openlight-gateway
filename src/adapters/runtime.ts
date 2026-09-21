@@ -18,7 +18,10 @@ export class AdapterRuntime {
  private readonly generations=new Map<string,number>();
  private readonly nextDeviceCall=new Map<string,number>();
  private readonly deviceTails=new Map<string,Promise<unknown>>();
- constructor(readonly bus:DomainBus,private readonly logger?:Logger,private readonly options:{timeoutMs?:number;maxQueue?:number}={}) {}
+ private readonly reconnectTimers=new Map<string,NodeJS.Timeout>();
+ private readonly everConnected=new Set<string>();
+ private readonly stopped=new Set<string>();
+ constructor(readonly bus:DomainBus,private readonly logger?:Logger,private readonly options:{timeoutMs?:number;maxQueue?:number;reconnectDelayMs?:number}={}) {}
  get(id:string):LightingAdapter {const adapter=this.adapters.get(id);if(!adapter)throw new AdapterError('TRANSPORT_ERROR','Adapter not registered');return adapter;}
  list():LightingAdapter[]{return [...this.adapters.values()];}
  register(adapter:LightingAdapter):void {
@@ -34,9 +37,17 @@ export class AdapterRuntime {
  }
  onEvent(listener:(id:string,event:AdapterEvent)=>void):()=>void {this.listeners.add(listener);return()=>this.listeners.delete(listener);}
  private notify(id:string,event:AdapterEvent):void {const report=()=>{try{this.logger?.error({adapter:id,errorCategory:'event_handler'},'Adapter event consumer failed');}catch{/* Reporting must not escape isolation. */}};for(const listener of this.listeners){try{const result:unknown=listener(id,event);if(result instanceof Promise)void result.catch(report);}catch{report();}}}
- private quarantine(id:string,error:AdapterError):void {this.unavailable.set(id,Infinity);this.bus.publish('adapter.error',{type:'adapter',id},{adapterId:id,reason:error.code});this.bus.publish('adapter.disconnected',{type:'adapter',id},{adapterId:id,reason:error.code});this.notify(id,{type:'connection',connected:false});}
- async connect(id:string):Promise<void> {const retry=this.reconnect.get(id);if(retry&&retry.retryAt>performance.now())throw new AdapterError('RATE_LIMITED','Reconnect backoff active',true,'not_sent',Math.ceil(retry.retryAt-performance.now()));try{this.subscribe(this.get(id));if(!this.subscriptions.has(id))throw new AdapterError('TRANSPORT_ERROR','Adapter subscription failed');await this.call(id,randomUUID(),null,c=>this.get(id).connect(c),{allowUnavailable:true});this.unavailable.delete(id);this.reconnect.delete(id);}catch(error){const failures=(retry?.failures??0)+1;this.reconnect.set(id,{failures,retryAt:performance.now()+Math.min(60000,1000*2**Math.min(failures-1,6))});throw error;}}
- async disconnect(id:string):Promise<void> {this.generations.set(id,(this.generations.get(id)??0)+1);for(const controller of this.controllers.get(id)??[])controller.abort();try{await this.call(id,randomUUID(),null,c=>this.get(id).disconnect(c),{allowUnavailable:true});}finally{this.subscriptions.get(id)?.();this.subscriptions.delete(id);this.unavailable.set(id,Infinity);}}
+ private quarantine(id:string,error:AdapterError):void {this.unavailable.set(id,Infinity);this.bus.publish('adapter.error',{type:'adapter',id},{adapterId:id,reason:error.code});this.bus.publish('adapter.disconnected',{type:'adapter',id},{adapterId:id,reason:error.code});this.notify(id,{type:'connection',connected:false});this.scheduleReconnect(id);}
+ // A quarantined adapter must not stay dead until the process restarts: retry connect() with the existing backoff.
+ // Only adapters that once connected are retried (a misconfigured startup should not loop), never after an explicit disconnect().
+ private scheduleReconnect(id:string):void {
+  if(this.reconnectTimers.has(id)||this.stopped.has(id)||!this.everConnected.has(id))return;
+  const retry=this.reconnect.get(id);const wait=Math.max(this.options.reconnectDelayMs??1000,retry?retry.retryAt-performance.now():0);
+  const timer=setTimeout(()=>{this.reconnectTimers.delete(id);if(this.stopped.has(id))return;this.connect(id).then(()=>this.logger?.info({adapter:id},'Adapter reconnected after quarantine'),()=>this.scheduleReconnect(id));},wait);
+  timer.unref();this.reconnectTimers.set(id,timer);
+ }
+ async connect(id:string):Promise<void> {this.stopped.delete(id);const retry=this.reconnect.get(id);if(retry&&retry.retryAt>performance.now())throw new AdapterError('RATE_LIMITED','Reconnect backoff active',true,'not_sent',Math.ceil(retry.retryAt-performance.now()));try{this.subscribe(this.get(id));if(!this.subscriptions.has(id))throw new AdapterError('TRANSPORT_ERROR','Adapter subscription failed');await this.call(id,randomUUID(),null,c=>this.get(id).connect(c),{allowUnavailable:true});this.unavailable.delete(id);this.reconnect.delete(id);this.everConnected.add(id);}catch(error){const failures=(retry?.failures??0)+1;this.reconnect.set(id,{failures,retryAt:performance.now()+Math.min(60000,1000*2**Math.min(failures-1,6))});throw error;}}
+ async disconnect(id:string):Promise<void> {this.stopped.add(id);clearTimeout(this.reconnectTimers.get(id));this.reconnectTimers.delete(id);this.generations.set(id,(this.generations.get(id)??0)+1);for(const controller of this.controllers.get(id)??[])controller.abort();try{await this.call(id,randomUUID(),null,c=>this.get(id).disconnect(c),{allowUnavailable:true});}finally{this.subscriptions.get(id)?.();this.subscriptions.delete(id);this.unavailable.set(id,Infinity);}}
  async close():Promise<void>{await Promise.allSettled(this.list().map(adapter=>this.disconnect(adapter.id)));}
  call<T>(id:string,operationId:string,nativeId:string|null,fn:(context:CallContext)=>Promise<T>,options:{signal?:AbortSignal;timeoutMs?:number;correlationId?:string|null;allowUnavailable?:boolean}={}):Promise<T> {
   const queued=this.pending.get(id)??0;if(queued>=(this.options.maxQueue??256))return Promise.reject(new AdapterError('RATE_LIMITED','Adapter queue full',true));this.pending.set(id,queued+1);
@@ -62,7 +73,7 @@ export class AdapterRuntime {
    const work=(async()=>{release=await this.acquire(adapter,nativeId,controller.signal);controller.signal.throwIfAborted();dispatched=true;return await fn(context);})();
    const result=await Promise.race([work,cancellation]);
    this.logger?.debug({adapter:id,device:nativeId,operation:operationId,latency:performance.now()-started,success:true},'Adapter call');return result;
-  }catch(error){const normalized=error instanceof AdapterError?error:controller.signal.aborted?new AdapterError(timedOut?'TIMEOUT':'CANCELED','Adapter call interrupted',timedOut,dispatched?'unknown':'not_sent'):new AdapterError('TRANSPORT_ERROR','Adapter call failed',true,dispatched?'unknown':'not_sent');if(normalized.code==='TIMEOUT'||normalized.code==='TRANSPORT_ERROR'||normalized.code==='AUTH_FAILED')this.quarantine(id,normalized);if(normalized.code==='RATE_LIMITED'){for(const budget of adapter.scheduling.budgets){const bucket=this.buckets.get(this.budgetKey(adapter.id,nativeId,budget));if(bucket)bucket.next=Math.max(bucket.next,performance.now()+(normalized.retryAfterMs??1000));}}
+  }catch(error){const normalized=error instanceof AdapterError?error:controller.signal.aborted?new AdapterError(timedOut?'TIMEOUT':'CANCELED','Adapter call interrupted',timedOut,dispatched?'unknown':'not_sent'):new AdapterError('TRANSPORT_ERROR','Adapter call failed',true,dispatched?'unknown':'not_sent');const failed=normalized.code==='TIMEOUT'||normalized.code==='TRANSPORT_ERROR';if(normalized.code==='AUTH_FAILED'||(failed&&nativeId===null))this.quarantine(id,normalized);else if(failed&&nativeId!==null&&!options.allowUnavailable)this.notify(id,{type:'availability',nativeId,status:'unknown'});if(normalized.code==='RATE_LIMITED'){for(const budget of adapter.scheduling.budgets){const bucket=this.buckets.get(this.budgetKey(adapter.id,nativeId,budget));if(bucket)bucket.next=Math.max(bucket.next,performance.now()+(normalized.retryAfterMs??1000));}}
    this.logger?.warn({adapter:id,device:nativeId,operation:operationId,latency:performance.now()-started,success:false,errorCategory:normalized.code},'Adapter call failed');throw normalized;
   }finally{clearTimeout(timer);options.signal?.removeEventListener('abort',external);if(abortListener)controller.signal.removeEventListener('abort',abortListener);release();set.delete(controller);}
  }
