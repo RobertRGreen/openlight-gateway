@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GoveeCloudAdapter } from '../src/adapters/govee/cloud-adapter.js';
 import type { AdapterEvent, CallContext } from '../src/adapters/types.js';
 
+process.env.GOVEE_SETTLE_MS = '0';
 let apiKey = 'secret-govee-test-key-never-log';
 let setupCount = 0;
 const nativeId = 'AA:BB:CC:DD:EE:FF:00:11';

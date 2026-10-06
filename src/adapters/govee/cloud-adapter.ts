@@ -13,6 +13,7 @@ const accounts = new Map<string, AccountQuota>();
 const object = (value: unknown): value is ObjectValue => typeof value === 'object' && value !== null && !Array.isArray(value);
 const integer = (value: unknown, maximum: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= maximum;
 const base = 'https://openapi.api.govee.com/router/api/v1';
+const settleMs = (): number => Number(process.env.GOVEE_SETTLE_MS ?? 700);
 const mapping = {
  power: { type: 'devices.capabilities.on_off', instance: 'powerSwitch' },
  brightness: { type: 'devices.capabilities.range', instance: 'brightness' },
@@ -220,6 +221,8 @@ export class GoveeCloudAdapter implements LightingAdapter {
  private async control(id: string, field: Field, value: number, context: CallContext): Promise<WriteReceipt> {
   this.capability(id, field, context); const entry = this.device(id);
   await this.request('device/control', context, { sku: entry.device.model, device: id, capability: { ...mapping[field], value } });
+  // ponytail: fixed settle delay; the cloud state read lags the write, so core's post-write verify saw the old value. Poll getState instead if this proves too short.
+  await delay(settleMs(), undefined, { signal: context.signal });
   return { transport: 'cloud', acknowledgment: 'accepted' };
  }
  async setPower(id: string, on: boolean, context: CallContext): Promise<WriteReceipt> { if (typeof on !== 'boolean') throw new AdapterError('OUT_OF_RANGE', 'Power must be boolean'); return this.control(id, 'power', on ? 1 : 0, context); }
