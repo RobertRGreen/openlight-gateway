@@ -11,6 +11,7 @@ import { GoveeCloudAdapter } from '../adapters/govee/cloud-adapter.js';
 import { NodeGoveeTransport, type GoveeTransport } from '../adapters/govee/transport.js';
 import { FeitAdapter, type FeitDeviceConfig } from '../adapters/feit/index.js';
 import { NodeFeitTransport, type FeitTransport } from '../adapters/feit/transport.js';
+import { HubspaceAdapter } from '../adapters/hubspace/index.js';
 import { DeviceRegistry } from '../core/devices/index.js';
 import { OperationService } from '../core/operations/index.js';
 import { RoomService } from '../core/rooms/index.js';
@@ -156,6 +157,20 @@ export async function createGateway(options: CompositionOptions = {}) {
         }
       })();
       cleanup.push({ order: 15, run: () => startFeit });
+    }
+    if (config.hubspaceAdapterEnabled) {
+      // Unofficial cloud API: failure here must never affect the other adapters or the API.
+      const startHubspace = (async () => {
+        try {
+          const hubspace = new HubspaceAdapter({ tokenFile: config.hubspaceTokenFile, logger: { warn: message => logger.warn({ adapter: 'hubspace' }, message) } });
+          runtime.register(hubspace);
+          await runtime.connect(hubspace.id);
+          if (!shutdownStarted) await registry.discover(hubspace.id);
+        } catch {
+          if (!shutdownStarted) logger.error({ adapter: 'hubspace', errorCategory: 'startup' }, 'Hubspace startup failed; run scripts/hubspace-login.mjs to create or refresh the token file; other adapters and API remain available');
+        }
+      })();
+      cleanup.push({ order: 15, run: () => startHubspace });
     }
     let ready = false;
     const markReady = () => {

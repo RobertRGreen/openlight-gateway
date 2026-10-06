@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { z } from 'zod';
 import { defaultCorsPolicy } from '../security/index.js';
 import type { CorsPolicy } from '../security/index.js';
@@ -15,6 +16,8 @@ const schema = z.object({
   GOVEE_ADAPTER_ENABLED: booleanEnv.default('false'),
   GOVEE_CLOUD_ADAPTER_ENABLED: booleanEnv.default('false'),
   FEIT_ADAPTER_ENABLED: booleanEnv.default('false'),
+  HUBSPACE_ADAPTER_ENABLED: booleanEnv.default('false'),
+  HUBSPACE_TOKEN_FILE: z.string().min(1).default(`${homedir()}/.config/openlight/hubspace-token.json`),
   // Parse device credentials only inside optional adapter startup so bad JSON
   // cannot prevent the mock adapter or API from starting.
   FEIT_DEVICES: z.string().default('[]'),
@@ -42,6 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     mdnsEnabled: value.MDNS_ENABLED, goveeAdapterEnabled: value.GOVEE_ADAPTER_ENABLED,
     goveeCloudAdapterEnabled: value.GOVEE_CLOUD_ADAPTER_ENABLED,
     feitAdapterEnabled: value.FEIT_ADAPTER_ENABLED, feitDevices: value.FEIT_DEVICES,
+    hubspaceAdapterEnabled: value.HUBSPACE_ADAPTER_ENABLED, hubspaceTokenFile: value.HUBSPACE_TOKEN_FILE,
     goveeDiscoveryTimeoutMs: value.GOVEE_DISCOVERY_TIMEOUT_MS,
     cors, logLevel: value.LOG_LEVEL, mockLatencyMs: value.MOCK_LATENCY_MS, adapterTimeoutMs: value.ADAPTER_TIMEOUT_MS };
 }
