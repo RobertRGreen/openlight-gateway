@@ -11,7 +11,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const fn = (functionClass: string, range: object = {}) => ({ functionClass, values: [{ name: functionClass, range }] });
 const light = { id: 'dev-1', typeId: 'metadevice.device', friendlyName: 'Chandelier 1', description: { device: { deviceClass: 'light', manufacturerName: 'Ecosmart', model: 'X' }, functions: [fn('power'), fn('brightness', { min: 1, max: 100, step: 1 }), fn('color-rgb'), fn('color-temperature', { min: 2200, max: 6500, step: 100 })] } };
 const metadevices = [{ id: 'room', typeId: 'metadevice.room' }, { id: 'plug', typeId: 'metadevice.device', description: { device: { deviceClass: 'switch' } } }, light];
-const stateValues = [{ functionClass: 'power', value: 'on' }, { functionClass: 'brightness', value: 56 }, { functionClass: 'color-temperature', value: 2700 }, { functionClass: 'color-rgb', value: { 'color-rgb': { r: 0, g: 255, b: 255 } } }, { functionClass: 'available', value: true }];
+const stateValues = [{ functionClass: 'power', value: 'on' }, { functionClass: 'brightness', value: 56 }, { functionClass: 'color-temperature', value: 2700 }, { functionClass: 'color-rgb', value: { 'color-rgb': { r: 0, g: 255, b: 255 } } }, { functionClass: 'color-mode', value: 'white' }, { functionClass: 'available', value: true }];
 
 function setup(refresh: Record<string, unknown> = { id_token: 'id-tok', expires_in: 3600 }) {
   const dir = mkdtempSync(join(tmpdir(), 'hubspace-'));
@@ -40,7 +40,7 @@ describe('Hubspace adapter using mocked fetch', () => {
   it('parses state including the nested color-rgb shape', async () => {
     const { adapter } = setup();
     const observation = await adapter.getState('dev-1', context());
-    expect(observation.state).toEqual({ power: true, brightness: 56, colorTemperature: 2700, rgb: { r: 0, g: 255, b: 255 } });
+    expect(observation.state).toEqual({ power: true, brightness: 56, colorTemperature: 2700, rgb: { r: 0, g: 255, b: 255 }, colorMode: 'white' });
     expect(observation.complete).toBe(true);
   });
   it('setColor switches color-mode together with the rgb value', async () => {

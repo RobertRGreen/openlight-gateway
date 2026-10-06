@@ -1497,6 +1497,13 @@ components:
         rgbw: *id005
         rgbww: *id006
         colorTemperature: *id007
+        colorMode:
+          type: string
+          enum:
+          - color
+          - white
+          readOnly: true
+          description: Observed only. rgb/rgbw/rgbww imply color, colorTemperature implies white.
         effect: *id008
         segments:
           type: array

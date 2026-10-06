@@ -132,6 +132,7 @@ export class HubspaceAdapter implements LightingAdapter {
     const rgb = get('color-rgb'); const channels = object(rgb) && object(rgb['color-rgb']) ? rgb['color-rgb'] : undefined;
     if (channels && [channels.r, channels.g, channels.b].every(c => typeof c === 'number')) state.rgb = { r: channels.r as number, g: channels.g as number, b: channels.b as number };
     const kelvin = get('color-temperature'); if (typeof kelvin === 'number') state.colorTemperature = kelvin;
+    const mode = get('color-mode'); if (mode === 'color' || mode === 'white') state.colorMode = mode; // 'sequence' etc. are not modelled
     const available = get('available'); const status = available === true ? 'online' : available === false ? 'offline' : 'unknown';
     this.emit({ type: 'availability', nativeId: id, status });
     if (status === 'offline') throw new AdapterError('OFFLINE', 'Hubspace device is offline', true, 'acknowledged');

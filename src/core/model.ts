@@ -7,7 +7,8 @@ export type Capability = { type: 'power' | 'rgb' | 'rgbw' | 'rgbww' }
   | { type: 'effects'; effectIds: string[] }
   | { type: 'transitions'; maxDurationMs: number }
   | { type: 'segments'; segmentIds: string[] };
-export interface SegmentState { power?: boolean; brightness?: number; rgb?: RGB; rgbw?: RGBW; rgbww?: RGBWW; colorTemperature?: number; effect?: string | null }
+/** `colorMode` is observed-only: adapters report it, commands cannot set it (rgb implies 'color', colorTemperature implies 'white'). */
+export interface SegmentState { power?: boolean; brightness?: number; rgb?: RGB; rgbw?: RGBW; rgbww?: RGBWW; colorTemperature?: number; colorMode?: 'color' | 'white'; effect?: string | null }
 export interface DeviceState extends SegmentState { segments?: { id: string; state: SegmentState }[] }
 export type Availability = 'online' | 'offline' | 'unknown';
 export interface Device {
