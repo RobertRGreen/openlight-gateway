@@ -284,6 +284,21 @@ if __name__ == "__main__":
         print(device["id"], device["name"], device["availability"])
 ```
 
+## Presets (animated palettes)
+
+To get smooth multi-color animation on supported bulbs instead of static colors, create a **preset** and play it with a
+normal command; the bulb runs the animation itself.
+
+```python
+presets = OpenLightPresets(BASE_URL, TOKEN)                       # client in docs/PRESETS.md
+cyber = presets.create("Cyber", ["#00fff2", "#ff2079"], speed=30)
+client.send_command(device_id, {"power": True, "effect": cyber["id"]})   # power on AND effect: effect alone does not turn a bulb on
+client.send_command(device_id, {"effect": None})                          # stop
+```
+
+Presets are created, edited and deleted live (no restart) and devices advertise them as `effects` capabilities. See
+[PRESETS.md](PRESETS.md) for the full guide, including what happens when you edit or delete a preset that is playing.
+
 ## Using OpenLight as a backend in a consumer's own architecture
 
 A consumer with its own "desired state → scheduler → hardware backend" architecture (a common shape for RGB/lighting controllers: a single authoritative desired-state store, a scheduler that diffs desired vs. last-known state and writes only what changed, and one backend class per hardware family) can treat `OpenLightClient` as one more backend alongside its native ones:

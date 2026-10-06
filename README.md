@@ -105,6 +105,14 @@ ws.onmessage = ({ data }) => {
 
 After fetching snapshots, apply newer device-state revisions from the buffer; refetch aggregate/configuration resources. Refetch after sequence gaps or a changed bootId. There is no event replay. Authenticated sockets are receive-only except protocol ping/pong. Never place tokens in URLs or subprotocols. Use `wss:` in LAN mode.
 
+## Presets
+
+A **preset** is a named animated palette (1–8 colors, a mode, a speed) that supported bulbs play by themselves from one
+command, so you get smooth multi-color animation with no per-frame traffic. Manage them over REST
+(`/api/v1/presets`: create, list, read, edit, delete) and play one with the normal command
+`{"state":{"power":true,"effect":"<preset id>"}}`; stop with `{"effect":null}`. Changes apply to devices live with no
+restart. Currently supported on Feit Electric (Tuya) bulbs. See **[docs/PRESETS.md](docs/PRESETS.md)**.
+
 ## Adapters and security
 
 Adapters implement discovery, transport, capabilities, observation, and writes. The core uses their shared interface rather than manufacturer branches. Adding a manufacturer requires protocol research, truthful capability mapping, bounded transport calls, and conformance tests; see [adding adapters](docs/ADAPTERS.md). To consume this API from another application (a PC RGB controller, home automation script, etc.), see [integration guide](docs/INTEGRATION.md) — REST/WebSocket walkthroughs, error handling, and a complete reference Python client, verified live against a running gateway.

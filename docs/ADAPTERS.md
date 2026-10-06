@@ -140,6 +140,21 @@ Prefer native effects when the advertised effect is appropriate. Generated effec
 
 Catch and normalize errors at the adapter boundary. Redact native bodies, credential values, URLs containing tokens, and device keys. Bound retries, use circuit breakers and reconnect backoff, and clean up every timer/socket/listener. Timeouts and `AbortSignal` prevent waiting forever only if implementations cooperate. In-process async error handling does not contain an infinite loop, native crash, or memory exhaustion. Use a process boundary when those risks must be contained; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Native presets
+
+An adapter can let the gateway's presets (`/presets`, see [PRESETS.md](PRESETS.md)) play on its hardware by implementing
+`effects.start(id, effectId, ctx)` / `effects.stop(id, ctx)`, where `effectId` is a preset id. The Feit adapter is the
+reference: `FeitAdapter.setScenes(presets)` recompiles the presets into the bulb's native format. The gateway calls it at
+startup and after every preset change, and the adapter then:
+
+1. advertises `{type:'effects', effectIds:[...]}` in `getCapabilities` (and **omits** the capability when it has none);
+2. emits an `AdapterEvent` of type `capabilities` for every device, so the registry re-advertises live;
+3. reports `state.effect` as the preset id playing, or `null` otherwise (never leave it unset once presets have existed:
+   the registry merges state and would keep a stale id).
+
+Starting a preset must not change power. A preset that fails to compile should be skipped with a warning rather than
+failing the others.
+
 ## Adding an adapter, for example WLED or Matter
 
 1. **Research and scope.** Record the exact models/protocol versions, supported discovery and transports, authentication requirements, commands, readback behavior, and quotas in the manufacturer research document. Verify primary protocol documentation. Do not infer local support from the brand name.
