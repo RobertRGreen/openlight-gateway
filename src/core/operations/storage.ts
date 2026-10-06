@@ -1,5 +1,5 @@
 import type { Operation } from './types.js';
-export type Collection = 'rooms' | 'groups' | 'scenes' | 'effects' | 'effect_runs' | 'device_snapshots';
+export type Collection = 'rooms' | 'groups' | 'scenes' | 'effects' | 'effect_runs' | 'device_snapshots' | 'presets';
 export interface CoreStore {
   get<T>(collection: Collection, id: string): T | undefined;
   list<T>(collection: Collection): T[];

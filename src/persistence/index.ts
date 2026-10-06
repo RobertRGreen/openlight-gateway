@@ -4,8 +4,8 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MIN_RETENTION_MS = 24 * 60 * 60 * 1000;
-export type Collection = 'device_snapshots' | 'rooms' | 'groups' | 'scenes' | 'effects' | 'effect_runs' | 'adapter_configs';
-const collections: readonly Collection[] = ['device_snapshots', 'rooms', 'groups', 'scenes', 'effects', 'effect_runs', 'adapter_configs'];
+export type Collection = 'device_snapshots' | 'rooms' | 'groups' | 'scenes' | 'effects' | 'effect_runs' | 'adapter_configs' | 'presets';
+const collections: readonly Collection[] = ['device_snapshots', 'rooms', 'groups', 'scenes', 'effects', 'effect_runs', 'adapter_configs', 'presets'];
 export class StorageError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -40,7 +40,7 @@ export class GatewayStore {
   }
   private migrate(): void {
     const version = Number(this.db.prepare('PRAGMA user_version').get()?.['user_version']);
-    if (version > 1) throw new Error('Database schema is newer than this gateway');
+    if (version > 2) throw new Error('Database schema is newer than this gateway');
     if (version === 0) this.transaction(() => {
       this.db.exec(`CREATE TABLE device_identities(adapter_id TEXT NOT NULL,native_id TEXT NOT NULL,device_id TEXT NOT NULL UNIQUE,PRIMARY KEY(adapter_id,native_id));
         CREATE TABLE gateway_config(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -50,7 +50,12 @@ export class GatewayStore {
         CREATE TABLE idempotency(scope TEXT NOT NULL,key TEXT NOT NULL,body_hash TEXT NOT NULL,response TEXT NOT NULL,admitted_at INTEGER NOT NULL,PRIMARY KEY(scope,key));
         CREATE INDEX idempotency_expiry ON idempotency(admitted_at);`);
       for (const table of collections) this.db.exec(`CREATE TABLE ${table}(id TEXT PRIMARY KEY,body TEXT NOT NULL,expires_at INTEGER)`);
-      this.db.exec('PRAGMA user_version = 1');
+      this.db.exec('PRAGMA user_version = 2');
+    });
+    // v1 -> v2: presets collection (databases created before it existed lack the table).
+    else if (version === 1) this.transaction(() => {
+      this.db.exec('CREATE TABLE presets(id TEXT PRIMARY KEY,body TEXT NOT NULL,expires_at INTEGER)');
+      this.db.exec('PRAGMA user_version = 2');
     });
   }
   transaction<T>(fn: () => T): T {

@@ -22,7 +22,10 @@ export const groupCreate = z.object({ name, deviceIds: ids }).strict();
 export const groupPatch = groupCreate.partial().strict().refine(nonempty, 'Patch must not be empty');
 export const sceneCreate = z.object({ name, entries: z.array(command.extend({ target }).strict()).min(1) }).strict();
 export const scenePatch = sceneCreate.partial().strict().refine(nonempty, 'Patch must not be empty');
-export const sceneActivate = z.object({ allowDegraded: z.boolean().optional() }).strict();
+// Structural only: PresetService owns the value rules (hex colors, 1-8 colors, speed range, mode) so they live in one place.
+export const presetCreate = z.object({ name: z.string(), colors: z.array(z.string()), mode: z.string().optional(), speed: z.number().optional() }).strict();
+export const presetPatch = presetCreate.partial().strict().refine(nonempty, 'Patch must not be empty');
+export const sceneActivate =z.object({ allowDegraded: z.boolean().optional() }).strict();
 export const effectStart = z.object({ target, parameters: z.record(z.unknown()).optional() }).strict();
 export const discoveryStart = z.object({ adapterIds: z.array(z.string().min(1)).min(1).refine(value => new Set(value).size === value.length).optional() }).strict();
 export const empty = z.object({}).strict();

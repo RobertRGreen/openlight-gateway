@@ -17,7 +17,7 @@ export interface FeitDpsMap {
 export interface FeitDeviceConfig { id: string; name: string; ip: string; localKey: string; version: '3.3' | '3.4' | '3.5'; dpsMap?: FeitDpsMap }
 /** A named native bulb scene: the bulb animates the palette itself from one command. speed is approximate (higher = faster, calibrated by eye only). */
 export interface FeitSceneConfig { colors: string[]; mode?: 'gradient' | 'jump' | 'static'; speed?: number }
-export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void }; scenes?: Readonly<Record<string, FeitSceneConfig>> }
+export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void } }
 type Range = { id: string; minimum: number; maximum: number; step: number };
 type Temperature = Range & { minimumKelvin: number; maximumKelvin: number };
 type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; sceneDp: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined; mode?: 'colour' | 'white'; pendingBrightness?: number };
@@ -57,9 +57,11 @@ export class FeitAdapter implements LightingAdapter {
  private readonly pending = new Set<() => void>();
  private readonly busy = new Set<string>();
  private readonly timeout: number;
- private readonly scenes = new Map<string, string>();
- /** Present only when scenes are configured, so unconfigured gateways advertise no effects. */
- readonly effects?: NonNullable<LightingAdapter['effects']>;
+ /** Scene id -> compiled DP 25 payload; replaced whole by setScenes (the gateway feeds it from its presets). */
+ private scenes = new Map<string, string>();
+ /** Sticky once any scene has existed: after the last preset is deleted, state.effect must still flip to null instead of keeping a stale id. */
+ private reportsEffect = false;
+ readonly effects: NonNullable<LightingAdapter['effects']> = { start: (id, effectId, context) => this.startScene(id, effectId, context), stop: (id, context) => this.stopScene(id, context) };
  private connected = false;
  private sequence = 0;
  private readonly transport: FeitTransport;
@@ -68,8 +70,6 @@ export class FeitAdapter implements LightingAdapter {
   this.transport = options.transport; this.logger = options.logger;
   this.timeout = options.commandTimeoutMs ?? 1500;
   if (!Number.isFinite(this.timeout) || this.timeout <= 0 || this.timeout > 2147483647) invalid();
-  for (const [sceneId, scene] of Object.entries(options.scenes ?? {})) this.scenes.set(sceneId, compileFeitScene(sceneId, scene));
-  if (this.scenes.size) this.effects = { start: (id, effectId, context) => this.startScene(id, effectId, context), stop: (id, context) => this.stopScene(id, context) };
   if (!Array.isArray(options.devices) || !options.devices.length || options.devices.length > 10000) invalid();
   for (const raw of options.devices) {
    if (!object(raw) || typeof raw.id !== 'string' || !raw.id || raw.id.length > 256 || typeof raw.name !== 'string' || !raw.name || raw.name.length > 256 || typeof raw.ip !== 'string' || !isIP(raw.ip) || typeof raw.localKey !== 'string' || Buffer.byteLength(raw.localKey) !== 16 || typeof raw.version !== 'string' || !raw.version || raw.version.length > 32 || this.entries.has(raw.id)) invalid();
@@ -120,8 +120,9 @@ export class FeitAdapter implements LightingAdapter {
  }
  async *discover(context: CallContext): AsyncIterable<AdapterDevice> { this.check(context); for (const entry of this.entries.values()) this.version(entry); await this.connect(context); for (const entry of this.entries.values()) { this.check(context); yield structuredClone(entry.device); } }
  async getDevices(context: CallContext): Promise<readonly AdapterDevice[]> { this.check(context); for (const entry of this.entries.values()) this.version(entry); return structuredClone([...this.entries.values()].map(entry => entry.device)); }
- async getCapabilities(id: string, context: CallContext): Promise<Capability[]> {
-  const entry = this.entry(id, context); const capabilities: Capability[] = [{ type: 'power' }, { type: 'brightness', minimum: 0, maximum: 100, step: 1 }];
+ async getCapabilities(id: string, context: CallContext): Promise<Capability[]> { return this.capabilitiesOf(this.entry(id, context)); }
+ private capabilitiesOf(entry: Entry): Capability[] {
+  const capabilities: Capability[] = [{ type: 'power' }, { type: 'brightness', minimum: 0, maximum: 100, step: 1 }];
   if (entry.colour) capabilities.push({ type: 'rgb' });
   if (this.scenes.size) capabilities.push({ type: 'effects', effectIds: [...this.scenes.keys()] });
   if (entry.temperature) capabilities.push({ type: 'colorTemperature', minimum: entry.temperature.minimumKelvin, maximum: entry.temperature.maximumKelvin, step: 1 });
@@ -203,9 +204,9 @@ export class FeitAdapter implements LightingAdapter {
    if (within(brightness, entry.brightness)) state.brightness = Math.round((brightness - entry.brightness.minimum) * 100 / (entry.brightness.maximum - entry.brightness.minimum));
    const mode = dps[entry.workMode];
    if (mode === 'colour' || mode === 'white') entry.mode = mode;
-   if (this.scenes.size) {
-    // effect is the configured scene currently playing; null in any non-scene mode. An unrecognised scene (e.g. set from the app) leaves it unknown.
-    if (mode === 'scene') { const current = dps[entry.sceneDp]; const known = [...this.scenes].find(([, payload]) => payload === current); if (known) state.effect = known[0]; }
+   if (this.reportsEffect) {
+    // effect is the preset currently playing, or null: no scene mode, or a scene the gateway does not know (edited/deleted preset, or set from the app). Never left unset, because the registry merges state and would keep a stale id.
+    if (mode === 'scene') { const current = dps[entry.sceneDp]; const known = [...this.scenes].find(([, payload]) => payload === current); state.effect = known ? known[0] : null; }
     else if (mode === 'colour' || mode === 'white') state.effect = null;
    }
    if (entry.colour) {
@@ -274,6 +275,18 @@ export class FeitAdapter implements LightingAdapter {
   // Linear calibrated approximation, quantized to the product's raw DP step; confirm on hardware.
   const raw = quantize(range.minimum + (kelvin - range.minimumKelvin) * (range.maximum - range.minimum) / (range.maximumKelvin - range.minimumKelvin), range);
   return this.control(entry, { [entry.workMode]: 'white', [range.id]: raw }, context);
+ }
+ /**
+  * Replaces the playable scenes and re-advertises each device's `effects` capability (absent while there are none).
+  * A scene that fails to compile is skipped with a warning so one bad preset cannot hide the rest.
+  */
+ setScenes(scenes: Readonly<Record<string, FeitSceneConfig>>): void {
+  const next = new Map<string, string>();
+  for (const [sceneId, scene] of Object.entries(scenes)) {
+   try { next.set(sceneId, compileFeitScene(sceneId, scene)); } catch { try { this.logger?.warn('Skipped invalid Feit scene'); } catch { /* Logger isolation. */ } }
+  }
+  this.scenes = next; if (next.size) this.reportsEffect = true;
+  for (const entry of this.entries.values()) this.emit({ type: 'capabilities', nativeId: entry.config.id, capabilities: this.capabilitiesOf(entry) });
  }
  private async startScene(id: string, effectId: string, context: CallContext): Promise<WriteReceipt> {
   const entry = this.entry(id, context); const payload = this.scenes.get(effectId);

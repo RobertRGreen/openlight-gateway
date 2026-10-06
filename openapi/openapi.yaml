@@ -874,6 +874,235 @@ paths:
         schema:
           type: string
         description: ETag from the current resource detail.
+  /presets:
+    get:
+      operationId: get_presets
+      summary: List presets
+      description: |
+        Presets are named animated palettes that supported bulbs (currently Feit/Tuya) play by themselves from a
+        single command. See docs/PRESETS.md for the full guide. The complete collection is returned, in creation order.
+      responses:
+        '200':
+          description: List presets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Preset'
+                required:
+                - items
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+    post:
+      operationId: post_presets
+      summary: Create preset
+      description: |
+        Creates a preset and immediately advertises it as an `effects` effect ID (the preset `id`) on every device whose
+        adapter supports native presets. No gateway restart is needed. Apply it with
+        `POST /devices/{id}/commands` and `{"state":{"effect":"<preset id>"}}`.
+      responses:
+        '201':
+          description: Preset created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preset'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Created resource URL
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: *id001
+        description: Persisted 24h minimum; same principal/method/path/body returns original response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresetCreate'
+  /presets/{id}:
+    get:
+      operationId: get_presets_id
+      summary: Read preset
+      responses:
+        '200':
+          description: Read preset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preset'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+    patch:
+      operationId: patch_presets_id
+      summary: Edit preset
+      description: |
+        Replaces only the supplied top-level fields (`colors` is replaced whole, not merged). The merged result is
+        re-validated. Devices already playing the old version keep looping it until the preset is applied again.
+      responses:
+        '200':
+          description: Updated preset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preset'
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Opaque quoted configuration revision
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current preset detail (GET /presets/{id}). Stale values return 412; a missing header returns 428.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresetPatch'
+    delete:
+      operationId: delete_presets_id
+      summary: Delete preset
+      description: |
+        Removes the preset and stops advertising it. Devices currently playing it keep looping the last animation they
+        received; stop them with a command of `{"state":{"effect":null}}`. Applying the deleted ID is rejected.
+      responses:
+        '204':
+          description: Preset deleted
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          $ref: '#/components/responses/403'
+        '429':
+          $ref: '#/components/responses/429'
+        '500':
+          $ref: '#/components/responses/500'
+        '503':
+          $ref: '#/components/responses/503'
+        '404':
+          $ref: '#/components/responses/404'
+        '400':
+          $ref: '#/components/responses/400'
+        '409':
+          $ref: '#/components/responses/409'
+        '413':
+          $ref: '#/components/responses/413'
+        '415':
+          $ref: '#/components/responses/415'
+        '422':
+          $ref: '#/components/responses/422'
+        '412':
+          $ref: '#/components/responses/412'
+        '428':
+          $ref: '#/components/responses/428'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: ETag from the current preset detail (GET /presets/{id}). Stale values return 412; a missing header returns 428.
   /rooms/{id}/state:
     get:
       operationId: get_rooms_id_state
@@ -1946,6 +2175,115 @@ components:
     RoomPatch:
       type: object
       properties: *id014
+      required: []
+      additionalProperties: false
+      minProperties: 1
+    Preset:
+      type: object
+      description: A named animated palette a device plays natively. Not a scene (a scene applies device states once).
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Opaque persistent ID. Also the effect ID used in device commands and in advertised `effects` capabilities.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        mode:
+          type: string
+          enum:
+          - gradient
+          - jump
+          - static
+          description: gradient fades smoothly between colors, jump snaps between them, static holds each color.
+        speed:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Approximate animation speed, higher is faster. Calibrated by eye on real bulbs, not a real-time unit.
+        colors:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            type: string
+            pattern: '^#[0-9a-f]{6}$'
+          description: Lowercase #rrggbb colors played in order, looping.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+      - mode
+      - speed
+      - colors
+      - createdAt
+      - updatedAt
+      additionalProperties: false
+      examples:
+      - id: 6f1c1d0e-9b6e-4f0a-8a55-3f7a1f6f2c11
+        name: Cyber
+        mode: gradient
+        speed: 30
+        colors:
+        - '#00fff2'
+        - '#ff2079'
+        createdAt: '2026-10-06T07:30:00.000Z'
+        updatedAt: '2026-10-06T07:30:00.000Z'
+    PresetCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Must not be blank. Surrounding whitespace is trimmed. Names need not be unique.
+        colors:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            type: string
+          description: 1-8 colors as "#rrggbb" (the leading # is optional). Normalized to lowercase with "#".
+        mode:
+          type: string
+          enum:
+          - gradient
+          - jump
+          - static
+          description: Defaults to gradient.
+        speed:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Defaults to 50.
+      required:
+      - name
+      - colors
+      additionalProperties: false
+      description: Creation returns 422 resource_limit at the v1 installation limit of 10,000 resources per collection. Invalid values return 422 validation_error.
+    PresetPatch:
+      type: object
+      properties:
+        name:
+          type: string
+        colors:
+          type: array
+          items:
+            type: string
+        mode:
+          type: string
+          enum:
+          - gradient
+          - jump
+          - static
+        speed:
+          type: integer
       required: []
       additionalProperties: false
       minProperties: 1

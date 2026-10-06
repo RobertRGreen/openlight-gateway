@@ -21,7 +21,6 @@ const schema = z.object({
   // Parse device credentials only inside optional adapter startup so bad JSON
   // cannot prevent the mock adapter or API from starting.
   FEIT_DEVICES: z.string().default('[]'),
-  FEIT_SCENES: z.string().default('{}'),
   GOVEE_DISCOVERY_TIMEOUT_MS: z.coerce.number().int().min(50).max(60_000).default(1500),
   CORS_ORIGINS: z.string().default(''), LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   MOCK_LATENCY_MS: z.coerce.number().int().min(0).max(60_000).default(5),
@@ -45,7 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     apiTokenSalt: value.API_TOKEN_SALT, goveeApiKey: value.GOVEE_API_KEY, databasePath: value.DATABASE_PATH, gatewayName: value.GATEWAY_NAME,
     mdnsEnabled: value.MDNS_ENABLED, goveeAdapterEnabled: value.GOVEE_ADAPTER_ENABLED,
     goveeCloudAdapterEnabled: value.GOVEE_CLOUD_ADAPTER_ENABLED,
-    feitAdapterEnabled: value.FEIT_ADAPTER_ENABLED, feitDevices: value.FEIT_DEVICES, feitScenes: value.FEIT_SCENES,
+    feitAdapterEnabled: value.FEIT_ADAPTER_ENABLED, feitDevices: value.FEIT_DEVICES,
     hubspaceAdapterEnabled: value.HUBSPACE_ADAPTER_ENABLED, hubspaceTokenFile: value.HUBSPACE_TOKEN_FILE,
     goveeDiscoveryTimeoutMs: value.GOVEE_DISCOVERY_TIMEOUT_MS,
     cors, logLevel: value.LOG_LEVEL, mockLatencyMs: value.MOCK_LATENCY_MS, adapterTimeoutMs: value.ADAPTER_TIMEOUT_MS };

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Device, Capability, Availability, StateSnapshot } from './model.js';
 import type { Operation, OperationStatus } from './operations/types.js';
 import type { EffectRun } from './effects/index.js';
+import type { Preset } from './presets/index.js';
 import type { AggregateState } from './rooms/index.js';
 import type { ErrorDetail } from './errors.js';
 export interface DomainData {
@@ -17,6 +18,7 @@ export interface DomainData {
  'room.state_changed':AggregateState; 'group.state_changed':AggregateState;
  'scene.started':{operationId:string;status:OperationStatus}; 'scene.completed':{operationId:string;status:OperationStatus}; 'scene.failed':{operationId:string;status:OperationStatus};
  'effect.started':{run:EffectRun}; 'effect.updated':{run:EffectRun}; 'effect.stopped':{run:EffectRun};
+ 'preset.created':{preset:Preset}; 'preset.updated':{preset:Preset}; 'preset.deleted':{preset:Preset};
  'operation.completed':{operation:Operation};
  'gateway.started':{reason:string}; 'gateway.stopping':{reason:string};
 }

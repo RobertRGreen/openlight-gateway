@@ -20,8 +20,9 @@ class FakeTransport implements FeitTransport {
  }
 }
 const scenes: Record<string, FeitSceneConfig> = { aurora: { colors: ['#ff0000', '#0000ff'], speed: 20 } };
-async function setup(withScenes = scenes) {
- const transport = new FakeTransport(); const adapter = new FeitAdapter({ devices: [device], transport, commandTimeoutMs: 50, scenes: withScenes });
+async function setup(withScenes: Record<string, FeitSceneConfig> = scenes) {
+ const transport = new FakeTransport(); const adapter = new FeitAdapter({ devices: [device], transport, commandTimeoutMs: 50 });
+ adapter.setScenes(withScenes);
  for await (const _ of adapter.discover(context())) { /* connect */ }
  return { adapter, transport };
 }
@@ -40,23 +41,46 @@ describe('Feit native scenes (DP 25 hex)', () => {
   const { adapter } = await setup();
   expect(await adapter.getCapabilities('bulb', context())).toContainEqual({ type: 'effects', effectIds: ['aurora'] });
   const bare = await setup({});
-  expect(bare.adapter.effects).toBeUndefined();
   expect((await bare.adapter.getCapabilities('bulb', context())).map(c => c.type)).not.toContain('effects');
  });
  it('start writes scene mode and data together and reports the running effect; stop restores the previous mode', async () => {
   const { adapter, transport } = await setup();
   await adapter.getState('bulb', context()); // learn colour mode
   expect((await adapter.getState('bulb', context())).state.effect).toBeNull();
-  const started = await adapter.effects!.start('bulb', 'aurora', context());
+  const started = await adapter.effects.start('bulb', 'aurora', context());
   expect(transport.writes.at(-1)).toEqual({ '21': 'scene', '25': compileFeitScene('aurora', scenes.aurora!) });
   expect(started.observation!.state.effect).toBe('aurora');
-  const stopped = await adapter.effects!.stop('bulb', context());
+  const stopped = await adapter.effects.stop('bulb', context());
   expect(transport.writes.at(-1)).toEqual({ '21': 'colour' });
   expect(stopped.observation!.state.effect).toBeNull();
  });
+ it('setScenes re-advertises effects live and drops the capability when no scenes remain', async () => {
+  const { adapter } = await setup(); const events: unknown[] = [];
+  adapter.onEvent(event => { if (event.type === 'capabilities') events.push(event); });
+  adapter.setScenes({ ...scenes, calm: { colors: ['#ffffff'], mode: 'static' } });
+  expect(events.at(-1)).toMatchObject({ nativeId: 'bulb', capabilities: expect.arrayContaining([{ type: 'effects', effectIds: ['aurora', 'calm'] }]) });
+  adapter.setScenes({});
+  expect(JSON.stringify(events.at(-1))).not.toContain('effects');
+  await expect(adapter.effects.start('bulb', 'aurora', context())).rejects.toMatchObject({ code: 'OUT_OF_RANGE' });
+ });
+ it('skips a scene that fails to compile, with a warning, and keeps the rest', async () => {
+  const warn = vi.fn(); const adapter = new FeitAdapter({ devices: [device], transport: new FakeTransport(), logger: { warn } });
+  adapter.setScenes({ ok: { colors: ['#ffffff'] }, bad: { colors: ['nope'] } });
+  expect((await adapter.getCapabilities('bulb', context()))).toContainEqual({ type: 'effects', effectIds: ['ok'] });
+  expect(warn).toHaveBeenCalledTimes(1);
+ });
+ it('reports effect null when the playing scene is no longer a known preset (edited or deleted)', async () => {
+  const { adapter } = await setup();
+  await adapter.effects.start('bulb', 'aurora', context());
+  expect((await adapter.getState('bulb', context())).state.effect).toBe('aurora');
+  adapter.setScenes({ aurora: { colors: ['#00ff00'] } }); // edited: the bulb still plays the old payload
+  expect((await adapter.getState('bulb', context())).state.effect).toBeNull();
+  adapter.setScenes({}); // deleted
+  expect((await adapter.getState('bulb', context())).state.effect).toBeNull();
+ });
  it('rejects an unknown scene id without writing', async () => {
   const { adapter, transport } = await setup();
-  await expect(adapter.effects!.start('bulb', 'nope', context())).rejects.toMatchObject({ code: 'OUT_OF_RANGE' });
+  await expect(adapter.effects.start('bulb', 'nope', context())).rejects.toMatchObject({ code: 'OUT_OF_RANGE' });
   expect(transport.writes).toHaveLength(0);
  });
 });
