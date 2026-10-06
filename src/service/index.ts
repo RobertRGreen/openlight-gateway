@@ -9,7 +9,7 @@ import { MockAdapter } from '../adapters/mock/index.js';
 import { GoveeAdapter } from '../adapters/govee/index.js';
 import { GoveeCloudAdapter } from '../adapters/govee/cloud-adapter.js';
 import { NodeGoveeTransport, type GoveeTransport } from '../adapters/govee/transport.js';
-import { FeitAdapter, type FeitDeviceConfig } from '../adapters/feit/index.js';
+import { FeitAdapter, type FeitDeviceConfig, type FeitSceneConfig } from '../adapters/feit/index.js';
 import { NodeFeitTransport, type FeitTransport } from '../adapters/feit/transport.js';
 import { HubspaceAdapter } from '../adapters/hubspace/index.js';
 import { DeviceRegistry } from '../core/devices/index.js';
@@ -137,15 +137,18 @@ export async function createGateway(options: CompositionOptions = {}) {
         try {
           const devices: unknown = JSON.parse(config.feitDevices);
           if (!Array.isArray(devices) || devices.length === 0) throw new Error('Invalid Feit inventory');
+          const scenes: unknown = JSON.parse(config.feitScenes);
+          if (typeof scenes !== 'object' || scenes === null || Array.isArray(scenes)) throw new Error('Invalid Feit scenes');
           feit = new FeitAdapter({
             devices: devices as FeitDeviceConfig[],
+            scenes: scenes as Record<string, FeitSceneConfig>,
             transport: options.feitTransport ?? new NodeFeitTransport(),
             // Leave time for Feit's response classification before the runtime deadline.
             commandTimeoutMs: Math.max(1, config.adapterTimeoutMs - 25),
             logger: { warn: message => logger.warn({ adapter: 'feit' }, message) },
           });
         } catch {
-          logger.error({ adapter: 'feit', errorCategory: 'configuration' }, 'FEIT_ADAPTER_ENABLED requires FEIT_DEVICES to be a non-empty JSON array of valid device configurations; Feit startup failed; other adapters and API remain available');
+          logger.error({ adapter: 'feit', errorCategory: 'configuration' }, 'FEIT_ADAPTER_ENABLED requires FEIT_DEVICES to be a non-empty JSON array of valid device configurations and FEIT_SCENES (optional) a JSON object of valid scenes; Feit startup failed; other adapters and API remain available');
           return;
         }
         try {

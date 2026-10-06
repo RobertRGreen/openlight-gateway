@@ -8,21 +8,44 @@ import type { FeitTransport } from './transport.js';
 export interface FeitDpsMap {
  power?: string;
  workMode?: string;
+ /** Scene datapoint (default "25"); only used when scenes are configured. */
+ scene?: string;
  brightness?: { id?: string; minimum?: number; maximum?: number; step?: number };
  colour?: string | null;
  colorTemperature?: { id?: string; rawMinimum?: number; rawMaximum?: number; minimumKelvin?: number; maximumKelvin?: number; step?: number } | null;
 }
 export interface FeitDeviceConfig { id: string; name: string; ip: string; localKey: string; version: '3.3' | '3.4' | '3.5'; dpsMap?: FeitDpsMap }
-export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void } }
+/** A named native bulb scene: the bulb animates the palette itself from one command. speed is approximate (higher = faster, calibrated by eye only). */
+export interface FeitSceneConfig { colors: string[]; mode?: 'gradient' | 'jump' | 'static'; speed?: number }
+export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void }; scenes?: Readonly<Record<string, FeitSceneConfig>> }
 type Range = { id: string; minimum: number; maximum: number; step: number };
 type Temperature = Range & { minimumKelvin: number; maximumKelvin: number };
-type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined; mode?: 'colour' | 'white'; pendingBrightness?: number };
+type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; sceneDp: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined; mode?: 'colour' | 'white'; pendingBrightness?: number };
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const dp = (value: unknown): value is string => typeof value === 'string' && /^[1-9][0-9]{0,4}$/.test(value);
 const within = (value: unknown, range: Range): value is number => typeof value === 'number' && Number.isInteger(value) && value >= range.minimum && value <= range.maximum && (value - range.minimum) % range.step === 0;
 const validRange = (range: Range) => dp(range.id) && [range.minimum, range.maximum, range.step].every(Number.isSafeInteger) && range.minimum >= 0 && range.maximum > range.minimum && range.step > 0 && (range.maximum - range.minimum) % range.step === 0;
 const invalid = (): never => { throw new AdapterError('OUT_OF_RANGE', 'Invalid Feit manual device configuration'); };
 const matchingColour = (actual: unknown, expected: unknown): boolean => object(actual) && object(expected) && ['h', 's', 'v'].every(channel => actual[channel] === expected[channel]);
+const sceneModes = { static: 0, jump: 1, gradient: 2 } as const;
+/**
+ * Compile a scene to the bulb's DP 25 hex string (hardware-verified 2026-10-06; the JSON form in the Tuya schema is silently ignored):
+ * 1-byte scene number, then 13-byte units: speed, speed, mode, hue(2), sat(2), val(2), bright(2), temp(2); colour units carry bright=temp=0.
+ */
+export function compileFeitScene(id: string, scene: FeitSceneConfig): string {
+ const fail = (): never => { throw new AdapterError('OUT_OF_RANGE', `Invalid Feit scene "${id.slice(0, 64)}"`); };
+ if (!id || id.length > 64 || !object(scene) || !Array.isArray(scene.colors) || scene.colors.length < 1 || scene.colors.length > 8) return fail();
+ const speed = scene.speed ?? 50; const mode = scene.mode ?? 'gradient';
+ if (!Number.isInteger(speed) || speed < 1 || speed > 100 || !(mode in sceneModes)) return fail();
+ const units = scene.colors.map(colour => {
+  const match = typeof colour === 'string' ? /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(colour) : null;
+  if (!match) return fail();
+  const hsv = rgbToHsvJson({ r: parseInt(match![1]!, 16), g: parseInt(match![2]!, 16), b: parseInt(match![3]!, 16) });
+  const hex = (value: number, width: number) => value.toString(16).padStart(width, '0');
+  return hex(speed, 2) + hex(speed, 2) + hex(sceneModes[mode], 2) + hex(hsv.h, 4) + hex(hsv.s, 4) + hex(hsv.v, 4) + '00000000';
+ });
+ return '01' + units.join('');
+}
 const quantize = (value: number, range: Range) => Math.max(range.minimum, Math.min(range.maximum, range.minimum + Math.round((value - range.minimum) / range.step) * range.step));
 
 /** Manually configured Tuya v3.3/v3.4/v3.5 devices; no discovery traffic or cloud credentials. */
@@ -34,6 +57,9 @@ export class FeitAdapter implements LightingAdapter {
  private readonly pending = new Set<() => void>();
  private readonly busy = new Set<string>();
  private readonly timeout: number;
+ private readonly scenes = new Map<string, string>();
+ /** Present only when scenes are configured, so unconfigured gateways advertise no effects. */
+ readonly effects?: NonNullable<LightingAdapter['effects']>;
  private connected = false;
  private sequence = 0;
  private readonly transport: FeitTransport;
@@ -42,6 +68,8 @@ export class FeitAdapter implements LightingAdapter {
   this.transport = options.transport; this.logger = options.logger;
   this.timeout = options.commandTimeoutMs ?? 1500;
   if (!Number.isFinite(this.timeout) || this.timeout <= 0 || this.timeout > 2147483647) invalid();
+  for (const [sceneId, scene] of Object.entries(options.scenes ?? {})) this.scenes.set(sceneId, compileFeitScene(sceneId, scene));
+  if (this.scenes.size) this.effects = { start: (id, effectId, context) => this.startScene(id, effectId, context), stop: (id, context) => this.stopScene(id, context) };
   if (!Array.isArray(options.devices) || !options.devices.length || options.devices.length > 10000) invalid();
   for (const raw of options.devices) {
    if (!object(raw) || typeof raw.id !== 'string' || !raw.id || raw.id.length > 256 || typeof raw.name !== 'string' || !raw.name || raw.name.length > 256 || typeof raw.ip !== 'string' || !isIP(raw.ip) || typeof raw.localKey !== 'string' || Buffer.byteLength(raw.localKey) !== 16 || typeof raw.version !== 'string' || !raw.version || raw.version.length > 32 || this.entries.has(raw.id)) invalid();
@@ -51,12 +79,12 @@ export class FeitAdapter implements LightingAdapter {
    if (config.dpsMap !== undefined && !object(config.dpsMap)) invalid();
    const map: FeitDpsMap = config.dpsMap ?? {};
    if (map.brightness !== undefined && !object(map.brightness)) invalid();
-   if (map.power !== undefined && !dp(map.power) || map.workMode !== undefined && !dp(map.workMode)) invalid();
+   if (map.power !== undefined && !dp(map.power) || map.workMode !== undefined && !dp(map.workMode) || map.scene !== undefined && !dp(map.scene)) invalid();
    if (map.brightness) {
     if (map.brightness.id !== undefined && !dp(map.brightness.id)) invalid();
     for (const field of ['minimum', 'maximum', 'step'] as const) if (map.brightness[field] !== undefined && !Number.isSafeInteger(map.brightness[field])) invalid();
    }
-   const power = map.power ?? '20'; const workMode = map.workMode ?? '21';
+   const power = map.power ?? '20'; const workMode = map.workMode ?? '21'; const sceneDp = map.scene ?? '25';
    const brightness: Range = { id: map.brightness?.id ?? '22', minimum: map.brightness?.minimum ?? 10, maximum: map.brightness?.maximum ?? 1000, step: map.brightness?.step ?? 1 };
    const colour = map.colour === undefined ? '24' : map.colour;
    if (!dp(power) || !dp(workMode) || !validRange(brightness) || (colour !== null && !dp(colour))) invalid();
@@ -71,9 +99,9 @@ export class FeitAdapter implements LightingAdapter {
      if (!validRange(temperature) || temperature.minimumKelvin < 1 || temperature.maximumKelvin <= temperature.minimumKelvin) invalid();
     }
    }
-   const ids = [power, workMode, brightness.id, ...(colour ? [colour] : []), ...(temperature ? [temperature.id] : [])];
+   const ids = [power, workMode, brightness.id, ...(this.scenes.size ? [sceneDp] : []), ...(colour ? [colour] : []), ...(temperature ? [temperature.id] : [])];
    if (new Set(ids).size !== ids.length) invalid();
-   this.entries.set(config.id, { config, power, workMode, brightness, colour, temperature, device: { nativeId: config.id, name: config.name, manufacturer: 'Feit Electric', model: null, address: { transport: 'lan', endpoint: config.ip }, extensions: {} } });
+   this.entries.set(config.id, { config, power, workMode, sceneDp, brightness, colour, temperature, device: { nativeId: config.id, name: config.name, manufacturer: 'Feit Electric', model: null, address: { transport: 'lan', endpoint: config.ip }, extensions: {} } });
   }
  }
  onEvent(listener: (event: AdapterEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -95,6 +123,7 @@ export class FeitAdapter implements LightingAdapter {
  async getCapabilities(id: string, context: CallContext): Promise<Capability[]> {
   const entry = this.entry(id, context); const capabilities: Capability[] = [{ type: 'power' }, { type: 'brightness', minimum: 0, maximum: 100, step: 1 }];
   if (entry.colour) capabilities.push({ type: 'rgb' });
+  if (this.scenes.size) capabilities.push({ type: 'effects', effectIds: [...this.scenes.keys()] });
   if (entry.temperature) capabilities.push({ type: 'colorTemperature', minimum: entry.temperature.minimumKelvin, maximum: entry.temperature.maximumKelvin, step: 1 });
   return structuredClone(capabilities);
  }
@@ -174,6 +203,11 @@ export class FeitAdapter implements LightingAdapter {
    if (within(brightness, entry.brightness)) state.brightness = Math.round((brightness - entry.brightness.minimum) * 100 / (entry.brightness.maximum - entry.brightness.minimum));
    const mode = dps[entry.workMode];
    if (mode === 'colour' || mode === 'white') entry.mode = mode;
+   if (this.scenes.size) {
+    // effect is the configured scene currently playing; null in any non-scene mode. An unrecognised scene (e.g. set from the app) leaves it unknown.
+    if (mode === 'scene') { const current = dps[entry.sceneDp]; const known = [...this.scenes].find(([, payload]) => payload === current); if (known) state.effect = known[0]; }
+    else if (mode === 'colour' || mode === 'white') state.effect = null;
+   }
    if (entry.colour) {
     const colour = dps[entry.colour];
     try {
@@ -240,5 +274,15 @@ export class FeitAdapter implements LightingAdapter {
   // Linear calibrated approximation, quantized to the product's raw DP step; confirm on hardware.
   const raw = quantize(range.minimum + (kelvin - range.minimumKelvin) * (range.maximum - range.minimum) / (range.maximumKelvin - range.minimumKelvin), range);
   return this.control(entry, { [entry.workMode]: 'white', [range.id]: raw }, context);
+ }
+ private async startScene(id: string, effectId: string, context: CallContext): Promise<WriteReceipt> {
+  const entry = this.entry(id, context); const payload = this.scenes.get(effectId);
+  if (!payload) throw new AdapterError('OUT_OF_RANGE', 'Unknown Feit scene');
+  // The bulb loops the scene itself: one write, no streaming. Scene mode and data go in the same message.
+  return this.control(entry, { [entry.workMode]: 'scene', [entry.sceneDp]: payload }, context);
+ }
+ private async stopScene(id: string, context: CallContext): Promise<WriteReceipt> {
+  // entry.mode only learns 'colour'/'white', so after a scene it still holds the mode to return to.
+  const entry = this.entry(id, context); return this.control(entry, { [entry.workMode]: entry.mode ?? 'colour' }, context);
  }
 }
