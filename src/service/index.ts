@@ -80,11 +80,12 @@ export async function createGateway(options: CompositionOptions = {}) {
       protocol: config.tlsMode === 'disabled' ? 'http' : 'https', apiVersion: 'v1',
     }, logger);
     cleanup.push({ order: 50, run: () => mdns.stop() });
-    const mock = new MockAdapter({ latencyMs: config.mockLatencyMs });
-    runtime.register(mock);
-
-    await runtime.connect(mock.id);
-    await registry.discover(mock.id);
+    if (config.mockAdapterEnabled) {
+      const mock = new MockAdapter({ latencyMs: config.mockLatencyMs });
+      runtime.register(mock);
+      await runtime.connect(mock.id);
+      await registry.discover(mock.id);
+    }
     // Discovery has already reconciled registered devices. Explicitly refresh any
     // interrupted targets so stale desired intent is never replayed on startup.
     await Promise.all(interruptedDevices.map(async id => {

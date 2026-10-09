@@ -15,6 +15,7 @@ const schema = z.object({
   MDNS_ENABLED: booleanEnv.default('false'),
   GOVEE_ADAPTER_ENABLED: booleanEnv.default('false'),
   GOVEE_CLOUD_ADAPTER_ENABLED: booleanEnv.default('false'),
+  MOCK_ADAPTER_ENABLED: booleanEnv.default('true'),
   FEIT_ADAPTER_ENABLED: booleanEnv.default('false'),
   HUBSPACE_ADAPTER_ENABLED: booleanEnv.default('false'),
   HUBSPACE_TOKEN_FILE: z.string().min(1).default(`${homedir()}/.config/openlight/hubspace-token.json`),
@@ -47,6 +48,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     feitAdapterEnabled: value.FEIT_ADAPTER_ENABLED, feitDevices: value.FEIT_DEVICES,
     hubspaceAdapterEnabled: value.HUBSPACE_ADAPTER_ENABLED, hubspaceTokenFile: value.HUBSPACE_TOKEN_FILE,
     goveeDiscoveryTimeoutMs: value.GOVEE_DISCOVERY_TIMEOUT_MS,
-    cors, logLevel: value.LOG_LEVEL, mockLatencyMs: value.MOCK_LATENCY_MS, adapterTimeoutMs: value.ADAPTER_TIMEOUT_MS };
+    cors, logLevel: value.LOG_LEVEL, mockAdapterEnabled: value.MOCK_ADAPTER_ENABLED, mockLatencyMs: value.MOCK_LATENCY_MS, adapterTimeoutMs: value.ADAPTER_TIMEOUT_MS };
 }
 export type GatewayConfig = ReturnType<typeof loadConfig>;

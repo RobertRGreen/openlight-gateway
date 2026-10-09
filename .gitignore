@@ -28,3 +28,8 @@ npm-debug.log*
 
 # test/coverage artifacts
 .vitest-cache/
+
+# env backups hold real device local keys -- never commit (this repo is PUBLIC)
+.env.*
+!.env.example
+*.bak*
