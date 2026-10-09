@@ -34,6 +34,10 @@ export class GatewayStore {
     this.db = new DatabaseSync(path);
     if (path !== ':memory:') chmodSync(path, 0o600);
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 1000;');
+    // Per-observation FULL fsyncs can block the event loop beyond adapter deadlines
+    // on slow storage. WAL/NORMAL keeps the database consistent without syncing
+    // every snapshot; sudden power loss may discard the latest transactions.
+    if (path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
     this.migrate();
     this.gatewayId = this.getConfig<string>('gatewayId') ?? randomUUID();
     this.setConfig('gatewayId', this.gatewayId);

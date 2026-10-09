@@ -10,6 +10,10 @@ The default backend is the **mock adapter**: five simulated devices demonstrate 
 
 Clients → Fastify REST/WebSocket API → lighting core → adapters → devices. The core owns persistent identity, capabilities, reconciliation, operation scheduling, and per-device outcomes. SQLite stores configuration, token verifiers, and retained operations/idempotency records. Observed state is distinct from requested state; accepted commands return an operation to poll. See [architecture](docs/ARCHITECTURE.md) and the [API contract](docs/API.md).
 
+## Persistence on slow storage
+
+File-backed databases use SQLite WAL mode with `synchronous=NORMAL` so frequent bulb observations do not force a disk sync on every write and stall adapter response handling. A sudden power loss can discard the newest transactions, while the database remains consistent. For a live backup, use SQLite's backup API (or stop the gateway before copying); copying only the main `.sqlite` file while it is running omits writes still in the WAL.
+
 ## Quick start
 
 Use Node with working built-in `node:sqlite` support. This checkout was tested on Node v26.8.2; the package declares Node >=22.5, but a broader runtime matrix has not been validated.

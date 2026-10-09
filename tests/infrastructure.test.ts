@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { GatewayStore, MIN_RETENTION_MS } from '../src/persistence/index.js';
 import { TokenService, redactSecrets, defaultCorsPolicy, isOriginAllowed } from '../src/security/index.js';
@@ -24,6 +25,20 @@ describe('infrastructure', () => {
       expect(() => store.lookupIdempotency('principal:POST:/devices/id/commands', 'key', { state: { power: false } })).toThrowError('different body');
       store.close();
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('allows a snapshot write while another connection holds a read transaction', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'openlight-wal-'));
+    const path = join(dir, 'gateway.db');
+    const store = new GatewayStore(path);
+    const reader = new DatabaseSync(path);
+    try {
+      store.put('device_snapshots', 'bulb', { power: false });
+      reader.exec('BEGIN');
+      reader.prepare('SELECT * FROM device_snapshots').all();
+      expect(() => store.put('device_snapshots', 'bulb', { power: true })).not.toThrow();
+      reader.exec('COMMIT');
+      expect(store.get('device_snapshots', 'bulb')).toEqual({ power: true });
+    } finally { reader.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
   });
   it('retains terminals for 24 hours without evicting at capacity, then expires them', () => {
     const store = new GatewayStore(':memory:', { maxRecords: 1 });
