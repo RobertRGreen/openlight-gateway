@@ -203,7 +203,7 @@ export class FeitAdapter implements LightingAdapter {
    const brightness = dps[entry.brightness.id];
    if (within(brightness, entry.brightness)) state.brightness = Math.round((brightness - entry.brightness.minimum) * 100 / (entry.brightness.maximum - entry.brightness.minimum));
    const mode = dps[entry.workMode];
-   if (mode === 'colour' || mode === 'white') entry.mode = mode;
+   if (mode === 'colour' || mode === 'white') { entry.mode = mode; state.colorMode = mode === 'white' ? 'white' : 'color'; }
    if (this.reportsEffect) {
     // effect is the preset currently playing, or null: no scene mode, or a scene the gateway does not know (edited/deleted preset, or set from the app). Never left unset, because the registry merges state and would keep a stale id.
     if (mode === 'scene') { const current = dps[entry.sceneDp]; const known = [...this.scenes].find(([, payload]) => payload === current); state.effect = known ? known[0] : null; }
@@ -274,7 +274,9 @@ export class FeitAdapter implements LightingAdapter {
   if (!Number.isInteger(kelvin) || kelvin < range.minimumKelvin || kelvin > range.maximumKelvin) throw new AdapterError('OUT_OF_RANGE', 'Color temperature is outside the calibrated Kelvin range');
   // Linear calibrated approximation, quantized to the product's raw DP step; confirm on hardware.
   const raw = quantize(range.minimum + (kelvin - range.minimumKelvin) * (range.maximum - range.minimum) / (range.maximumKelvin - range.minimumKelvin), range);
-  return this.control(entry, { [entry.workMode]: 'white', [range.id]: raw }, context);
+  const dps: Record<string, unknown> = { [entry.workMode]: 'white', [range.id]: raw };
+  if (entry.pendingBrightness !== undefined) dps[entry.brightness.id] = quantize(entry.brightness.minimum + entry.pendingBrightness * (entry.brightness.maximum - entry.brightness.minimum) / 100, entry.brightness);
+  return this.control(entry, dps, context);
  }
  /**
   * Replaces the playable scenes and re-advertises each device's `effects` capability (absent while there are none).
