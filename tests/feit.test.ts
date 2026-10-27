@@ -86,7 +86,10 @@ describe('Feit manually configured Tuya adapter', () => {
  it('bounds fake transports ignoring abort and maps timeout correctly', async () => {
   const { adapter, transport } = await setup(); const request = vi.spyOn(transport, 'request').mockImplementation(async (_ip, _packet, ctx) => { transport.contexts.push(ctx); return new Promise(() => {}); });
   await expect(adapter.setPower('bulb', true, context())).rejects.toMatchObject({ code: 'OFFLINE' });
-  expect(transport.contexts[0]!.signal.aborted).toBe(true); expect(request).toHaveBeenCalledTimes(2);
+  // A delayed event loop may exhaust the whole deadline before the second query.
+  // Both outcomes obey the bound; retry behavior with available time is tested below.
+  expect(request.mock.calls.length).toBeGreaterThanOrEqual(1); expect(request.mock.calls.length).toBeLessThanOrEqual(2);
+  expect(transport.contexts.every(ctx => ctx.signal.aborted)).toBe(true);
  });
  it('retries only DP_QUERY after mismatched state and requires exact raw work mode', async () => {
   // White mode already known, so setBrightness still writes directly (the write/retry
