@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Logger } from 'pino';
 import { GatewayError, type ErrorDetail } from '../errors.js';
 import type { DeviceState } from '../model.js';
@@ -20,7 +21,7 @@ export function publicError(error:unknown,requestId='core'):ErrorDetail {
 export function rejected(deviceId:string,error:ErrorDetail):DeviceResult {return {deviceId,status:'failed',confirmation:'unconfirmed',warnings:[],transport:null,fallback:null,fieldResults:[],error};}
 export class OperationService {
   private tails=new Map<string,Promise<unknown>>();private pending=new Map<string,Promise<Operation>>();private reservations=new Map<string,string>();private groups:(id:string)=>string[]=()=>{throw new GatewayError(404,'not_found','Group not found');};private closing=false;
-  constructor(private store:CoreStore,readonly registry:DeviceRegistry,readonly runtime:AdapterRuntime,private bus:OperationEvents,private logger?:Logger,private options:{maxPending?:number}={}){}
+  constructor(private store:CoreStore,readonly registry:DeviceRegistry,readonly runtime:AdapterRuntime,private bus:OperationEvents,private logger?:Logger,private options:{maxPending?:number;retryDelayMs?:number;retryTimeoutMs?:number}={}){}
   setGroupResolver(resolve:(id:string)=>string[]):void{this.groups=resolve;}
   resolve(target:Target):string[]{if(target.type==='device'){this.registry.get(target.id);return [target.id];}return [...this.groups(target.id)];}
   get(id:string):Operation {const operation=this.store.getOperation<Operation>(id);if(!operation)throw new GatewayError(404,'not_found','Operation not found');return operation;}
@@ -46,6 +47,31 @@ export class OperationService {
   private finish(operation:Operation):Operation {const successes=operation.results.filter(r=>r.status!=='failed').length;operation.status=successes===0?'failed':operation.results.every(r=>r.status==='succeeded')?'succeeded':'partial';operation.completedAt=new Date().toISOString();this.store.saveOperation(operation);this.bus.publish('operation.completed',{type:'operation',id:operation.id},{operation:structuredClone(operation)},operation.id);return operation;}
   executeFrame(target:PreparedTarget,operationId:string,opts:SubmitOptions={}):Promise<DeviceResult>{return this.serial(target.deviceId,()=>this.execute(target,operationId,opts));}
   async execute(target:PreparedTarget,operationId:string,opts:SubmitOptions={}):Promise<DeviceResult> {
+    // Retry absolute assignments inside the original per-device serial queue.
+    // Never replay effects, animation frames or transitions as a generic retry.
+    const state=target.command.state;
+    if(target.rejection||opts.ownerRunId||target.command.transitionMs!==undefined||state.effect!==undefined||state.segments)
+      return this.executeOnce(target,operationId,opts);
+    const deadline=new AbortController();
+    const timer=setTimeout(()=>deadline.abort(),this.options.retryTimeoutMs??45000);
+    const signal=opts.signal?AbortSignal.any([opts.signal,deadline.signal]):deadline.signal;
+    const transient=new Set(['rate_limited','adapter_timeout','transport_error','state_mismatch']);
+    let result:DeviceResult=rejected(target.deviceId,publicError(new AdapterError('CANCELED','Canceled'),opts.requestId));
+    try {
+      for(let attempt=1;attempt<=3;attempt++) {
+        if(signal.aborted)break;
+        result=await this.executeOnce(target,operationId,{...opts,signal});
+        if(result.status!=='failed'||!transient.has(result.error?.code??'')||attempt===3||signal.aborted)return result;
+        this.logger?.info({operationId,deviceId:target.deviceId,attempt,nextAttempt:attempt+1,errorCategory:result.error?.code},'Waiting for adapter before retry');
+        // Runtime.call still enforces account/device budgets and retry-after.
+        // Keeping this inside serial() prevents duplicate outstanding operations.
+        try {await delay((this.options.retryDelayMs??500)*2**(attempt-1),undefined,{signal});}
+        catch {break;}
+      }
+      return {...result,status:'failed',error:publicError(new AdapterError(opts.signal?.aborted?'CANCELED':'TIMEOUT','Retry budget exhausted'),opts.requestId)};
+    } finally {clearTimeout(timer);}
+  }
+  private async executeOnce(target:PreparedTarget,operationId:string,opts:SubmitOptions={}):Promise<DeviceResult> {
     if(target.rejection)return rejected(target.deviceId,target.rejection);
     const started=Date.now();const result:DeviceResult={deviceId:target.deviceId,status:'succeeded',confirmation:'unconfirmed',warnings:target.warnings??[],transport:null,fallback:null,fieldResults:[]};
     try {
