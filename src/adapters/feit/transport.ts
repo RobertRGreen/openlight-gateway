@@ -177,7 +177,7 @@ export class NodeFeitTransport implements FeitTransport {
             const response = decodeSessionFrame(version, buffered, sessionKey ?? localKey);
             buffered = Buffer.alloc(0); targetLength = headerLength;
             if (phase === 'handshake') {
-              if (response.command !== 0x04 || (version === '3.4' && response.sequence !== sequence)) continue;
+              if (response.command !== 0x04) continue;
               if (response.payload.length < 4 || response.payload.readUInt32BE(0) !== 0) throw new Error();
               const negotiated = handshakeFinish(version, localKey, start.clientNonce, response.payload.subarray(4));
               const finishPacket = encodeSessionFrame(version, takeSequence(), 0x05, negotiated.payload, localKey);
@@ -196,7 +196,7 @@ export class NodeFeitTransport implements FeitTransport {
                   write(control, sendQuery, true);
                 } else sendQuery();
               });
-            } else if (phase === 'query' && response.command === DP_QUERY_NEW && (version === '3.5' || response.sequence === querySequence)) {
+            } else if (phase === 'query' && response.command === DP_QUERY_NEW) {
               if (response.payload.length < 4 || response.payload.readUInt32BE(0) !== 0) throw new Error();
               const payload = encodeQuery(decryptSessionPayload(version, response.payload.subarray(4), sessionKey!));
               finish(undefined, { sequence: response.sequence, command: response.command, payload });

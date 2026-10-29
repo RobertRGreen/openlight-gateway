@@ -176,7 +176,7 @@ export class FeitAdapter implements LightingAdapter {
        return this.transport.requestSession(entry.config.ip, { version: entry.config.version, localKey: entry.config.localKey, sequence, queryPayload, ...(attempt === 0 && control ? { preceding: { payload: control.payload } } : {}) }, requestContext);
       });
       if (signal.aborted) throw new AdapterError('CANCELED', 'Feit call canceled');
-      if (frame.command !== queryCommand || (entry.config.version !== '3.5' && frame.sequence !== querySequence)) throw new Error();
+      if (frame.command !== queryCommand || (entry.config.version === '3.3' && frame.sequence !== querySequence)) throw new Error();
       responded = true;
       const { observation, dps } = this.parse(entry, frame.payload);
       this.emit({ type: 'availability', nativeId: id, status: 'online' });

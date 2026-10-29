@@ -62,8 +62,8 @@ describe('Feit session adapter integration', () => {
   transport.command = 7;
   await expect(adapter.getState('bulb', context())).rejects.toMatchObject({ code: 'TRANSPORT_ERROR' });
  });
- it('preserves v3.4 sequence matching', async () => {
+ it('accepts device-assigned v3.4 response sequences', async () => {
   const { adapter, transport } = await setup('3.4'); transport.sequenceMismatch = true;
-  await expect(adapter.getState('bulb', context())).rejects.toMatchObject({ code: 'TRANSPORT_ERROR' });
+  expect(await adapter.getState('bulb', context())).toMatchObject({ state: { power: true } });
  });
 });

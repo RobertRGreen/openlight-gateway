@@ -157,15 +157,19 @@ function ecb(payload: Uint8Array, key: SessionKey, decrypt: boolean, padding: bo
   } catch { throw new Error('Invalid Tuya encrypted payload'); }
 }
 
-/** v3.4 uses unpadded ECB under the static key; v3.5 uses only frame-level GCM. */
+/** v3.4 handshake packets use padded ECB; v3.5 uses only frame-level GCM. */
 export function encryptHandshake(version: SessionVersion, payload: Uint8Array, localKey: string): Buffer {
   if (![16, 32, 48].includes(payload.byteLength)) throw new Error('Invalid Tuya handshake length');
-  return version === '3.4' ? ecb(payload, localKey, false, false) : Buffer.from(payload);
+  return version === '3.4' ? ecb(payload, localKey, false, true) : Buffer.from(payload);
 }
 
 export function decryptHandshake(version: SessionVersion, payload: Uint8Array, localKey: string): Buffer {
+  if (version === '3.4') {
+    if (![32, 48, 64].includes(payload.byteLength)) throw new Error('Invalid Tuya handshake length');
+    return ecb(payload, localKey, true, true);
+  }
   if (![16, 32, 48].includes(payload.byteLength)) throw new Error('Invalid Tuya handshake length');
-  return version === '3.4' ? ecb(payload, localKey, true, false) : Buffer.from(payload);
+  return Buffer.from(payload);
 }
 
 export function handshakeStart(version: SessionVersion, localKey: string, nonce: Uint8Array = randomBytes(16)): { clientNonce: Buffer; payload: Buffer } {
@@ -175,7 +179,7 @@ export function handshakeStart(version: SessionVersion, localKey: string, nonce:
 }
 
 export function handshakeFinish(version: SessionVersion, localKey: string, clientNonce: Uint8Array, response: Uint8Array): { deviceNonce: Buffer; payload: Buffer } {
-  if (clientNonce.byteLength !== 16 || response.byteLength !== 48) throw new Error('Invalid Tuya handshake response');
+  if (clientNonce.byteLength !== 16 || response.byteLength !== (version === '3.4' ? 64 : 48)) throw new Error('Invalid Tuya handshake response');
   const decrypted = decryptHandshake(version, response, localKey);
   const expected = createHmac('sha256', keyBytes(localKey)).update(clientNonce).digest();
   if (!timingSafeEqual(expected, decrypted.subarray(16))) throw new Error('Invalid Tuya handshake authentication');

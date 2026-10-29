@@ -36,7 +36,7 @@ describe('Feit negotiated TCP sessions', () => {
   }
   it.each(['3.4', '3.5'] as const)('authenticates %s, sends FINISH before CONTROL_NEW+QUERY, and ignores CONTROL_NEW acknowledgments', async version => {
     const pending = transport.requestSession('192.168.1.42', { version, localKey, sequence: 7, queryPayload: {}, preceding: { payload: { protocol: 5, t: 1700000000, data: { dps: { '20': true } } } } }, context());
-    const { deviceNonce, key } = authenticate(version, version === '3.5' ? 600 : 7);
+    const { deviceNonce, key } = authenticate(version, 600);
     expect(socket.connect).toHaveBeenCalledWith(6668, '192.168.1.42');
     expect(socket.write).toHaveBeenCalledTimes(4);
     const finish = decodeSessionFrame(version, socket.write.mock.calls[1]![0], localKey);
@@ -107,14 +107,12 @@ describe('Feit negotiated TCP sessions', () => {
     socket.emit('connect'); await vi.advanceTimersByTimeAsync(1001); await failed;
     expect(socket.destroy).toHaveBeenCalledOnce();
   });
-  it('keeps v3.4 sequence correlation for authenticated query responses', async () => {
+  it('accepts authenticated v3.4 device-assigned response sequence numbers', async () => {
     const pending = transport.requestSession('192.168.1.42', { version: '3.4', localKey, sequence: 7, queryPayload: {} }, context());
     const { key } = authenticate('3.4');
     const payload = Buffer.concat([retcode, encryptSessionPayload('3.4', { dps: { '20': true } }, key)]);
-    socket.emit('data', encodeSessionFrame('3.4', 7, DP_QUERY_NEW, payload, key));
-    expect(socket.destroy).not.toHaveBeenCalled();
-    socket.emit('data', encodeSessionFrame('3.4', 9, DP_QUERY_NEW, payload, key));
-    await expect(pending).resolves.toMatchObject({ sequence: 9, command: DP_QUERY_NEW });
+    socket.emit('data', encodeSessionFrame('3.4', 600, DP_QUERY_NEW, payload, key));
+    await expect(pending).resolves.toMatchObject({ sequence: 600, command: DP_QUERY_NEW });
   });
   it('does not send CONTROL_NEW or QUERY after cancellation during FINISH flushing', async () => {
     const controller = new AbortController();
