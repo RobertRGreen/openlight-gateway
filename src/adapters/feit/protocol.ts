@@ -157,19 +157,21 @@ function ecb(payload: Uint8Array, key: SessionKey, decrypt: boolean, padding: bo
   } catch { throw new Error('Invalid Tuya encrypted payload'); }
 }
 
-/** v3.4 handshake packets use padded ECB; v3.5 uses only frame-level GCM. */
+/**
+ * 3.4 negotiates with the static key using PKCS#7-padded ECB.  The resulting
+ * session key itself is a separate, unpadded ECB encryption of the XOR'd
+ * nonces; confusing those two steps makes real 3.4 devices close the socket.
+ */
 export function encryptHandshake(version: SessionVersion, payload: Uint8Array, localKey: string): Buffer {
   if (![16, 32, 48].includes(payload.byteLength)) throw new Error('Invalid Tuya handshake length');
   return version === '3.4' ? ecb(payload, localKey, false, true) : Buffer.from(payload);
 }
 
 export function decryptHandshake(version: SessionVersion, payload: Uint8Array, localKey: string): Buffer {
-  if (version === '3.4') {
-    if (![32, 48, 64].includes(payload.byteLength)) throw new Error('Invalid Tuya handshake length');
-    return ecb(payload, localKey, true, true);
-  }
-  if (![16, 32, 48].includes(payload.byteLength)) throw new Error('Invalid Tuya handshake length');
-  return Buffer.from(payload);
+  if (!Number.isInteger(payload.byteLength) || payload.byteLength < 16 || payload.byteLength > 64 || payload.byteLength % 16 !== 0) throw new Error('Invalid Tuya handshake length');
+  const plain = version === '3.4' ? ecb(payload, localKey, true, true) : Buffer.from(payload);
+  if (![16, 32, 48].includes(plain.byteLength)) throw new Error('Invalid Tuya handshake payload');
+  return plain;
 }
 
 export function handshakeStart(version: SessionVersion, localKey: string, nonce: Uint8Array = randomBytes(16)): { clientNonce: Buffer; payload: Buffer } {
@@ -179,8 +181,9 @@ export function handshakeStart(version: SessionVersion, localKey: string, nonce:
 }
 
 export function handshakeFinish(version: SessionVersion, localKey: string, clientNonce: Uint8Array, response: Uint8Array): { deviceNonce: Buffer; payload: Buffer } {
-  if (clientNonce.byteLength !== 16 || response.byteLength !== (version === '3.4' ? 64 : 48)) throw new Error('Invalid Tuya handshake response');
+  if (clientNonce.byteLength !== 16) throw new Error('Invalid Tuya handshake response');
   const decrypted = decryptHandshake(version, response, localKey);
+  if (decrypted.byteLength !== 48) throw new Error('Invalid Tuya handshake response');
   const expected = createHmac('sha256', keyBytes(localKey)).update(clientNonce).digest();
   if (!timingSafeEqual(expected, decrypted.subarray(16))) throw new Error('Invalid Tuya handshake authentication');
   const deviceNonce = Buffer.from(decrypted.subarray(0, 16));
@@ -198,9 +201,13 @@ export function deriveSessionKey(version: SessionVersion, localKey: string, clie
   return Buffer.concat([cipher.update(mixed), cipher.final()]);
 }
 
-/** v3.4 encrypts the version header with JSON; v3.5 encrypts it at the frame layer. */
-export function encryptSessionPayload(version: SessionVersion, payload: unknown, key: SessionKey): Buffer {
-  const bytes = Buffer.concat([Buffer.from(version), Buffer.alloc(12), encodeQuery(payload)]);
+/**
+ * v3.4 encrypts application JSON with the negotiated key.  Tuya only prepends
+ * the 3.x version header to commands outside its no-header set; DP_QUERY_NEW
+ * must therefore be sent as plain JSON inside the session cipher.
+ */
+export function encryptSessionPayload(version: SessionVersion, payload: unknown, key: SessionKey, includeVersionHeader = true): Buffer {
+  const bytes = includeVersionHeader ? Buffer.concat([Buffer.from(version), Buffer.alloc(12), encodeQuery(payload)]) : encodeQuery(payload);
   return version === '3.4' ? ecb(bytes, key, false, true) : bytes;
 }
 

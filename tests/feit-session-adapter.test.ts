@@ -56,7 +56,7 @@ describe('Feit session adapter integration', () => {
   expect(transport.requests.filter(request => request.preceding)).toHaveLength(1);
   expect(transport.requests).toHaveLength(3);
  });
- it('accepts nonmatching v3.5 sequence but rejects an unrelated command', async () => {
+ it('accepts device-assigned session response sequences but rejects an unrelated command', async () => {
   const { adapter, transport } = await setup('3.5'); transport.sequenceMismatch = true;
   expect(await adapter.getState('bulb', context())).toMatchObject({ state: { power: true } });
   transport.command = 7;
@@ -64,6 +64,6 @@ describe('Feit session adapter integration', () => {
  });
  it('accepts device-assigned v3.4 response sequences', async () => {
   const { adapter, transport } = await setup('3.4'); transport.sequenceMismatch = true;
-  expect(await adapter.getState('bulb', context())).toMatchObject({ state: { power: true } });
+  await expect(adapter.getState('bulb', context())).resolves.toMatchObject({ state: { power: true } });
  });
 });

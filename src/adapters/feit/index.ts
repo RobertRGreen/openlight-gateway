@@ -13,6 +13,11 @@ export interface FeitDpsMap {
  brightness?: { id?: string; minimum?: number; maximum?: number; step?: number };
  colour?: string | null;
  colorTemperature?: { id?: string; rawMinimum?: number; rawMaximum?: number; minimumKelvin?: number; maximumKelvin?: number; step?: number } | null;
+ /**
+  * Declare a verified addressable layout. This is metadata only: no per-frame
+  * network streaming or guessed vendor music payloads are enabled by it.
+  */
+ addressableStrip?: { pixelCount: number; segmentIds?: string[]; nativeModes?: ('scene' | 'music')[] };
 }
 export interface FeitDeviceConfig { id: string; name: string; ip: string; localKey: string; version: '3.3' | '3.4' | '3.5'; dpsMap?: FeitDpsMap }
 /** A named native bulb scene: the bulb animates the palette itself from one command. speed is approximate (higher = faster, calibrated by eye only). */
@@ -20,7 +25,8 @@ export interface FeitSceneConfig { colors: string[]; mode?: 'gradient' | 'jump' 
 export interface FeitAdapterOptions { devices: readonly FeitDeviceConfig[]; transport: FeitTransport; commandTimeoutMs?: number; logger?: { warn(message: string): void } }
 type Range = { id: string; minimum: number; maximum: number; step: number };
 type Temperature = Range & { minimumKelvin: number; maximumKelvin: number };
-type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; sceneDp: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined; mode?: 'colour' | 'white'; pendingBrightness?: number };
+type AddressableStrip = { pixelCount: number; segmentIds: string[] };
+type Entry = { config: FeitDeviceConfig; device: AdapterDevice; power: string; workMode: string; sceneDp: string; brightness: Range; colour: string | null; colourEncoding?: 'hex' | 'json'; temperature: Temperature | undefined; addressableStrip?: AddressableStrip; mode?: 'colour' | 'white'; pendingBrightness?: number };
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const dp = (value: unknown): value is string => typeof value === 'string' && /^[1-9][0-9]{0,4}$/.test(value);
 const within = (value: unknown, range: Range): value is number => typeof value === 'number' && Number.isInteger(value) && value >= range.minimum && value <= range.maximum && (value - range.minimum) % range.step === 0;
@@ -89,6 +95,14 @@ export class FeitAdapter implements LightingAdapter {
    const colour = map.colour === undefined ? '24' : map.colour;
    if (!dp(power) || !dp(workMode) || !validRange(brightness) || (colour !== null && !dp(colour))) invalid();
    let temperature: Temperature | undefined;
+   let addressableStrip: AddressableStrip | undefined;
+   if (map.addressableStrip !== undefined) {
+    if (map.addressableStrip?.nativeModes !== undefined && (!Array.isArray(map.addressableStrip.nativeModes) || map.addressableStrip.nativeModes.some(mode => !['scene', 'music'].includes(mode)))) invalid();
+    if (!object(map.addressableStrip) || !Number.isInteger(map.addressableStrip.pixelCount) || map.addressableStrip.pixelCount < 1 || map.addressableStrip.pixelCount > 4096 || (map.addressableStrip.segmentIds !== undefined && (!Array.isArray(map.addressableStrip.segmentIds) || map.addressableStrip.segmentIds.some(id => typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(id))))) invalid();
+    const segmentIds = [...new Set(map.addressableStrip.segmentIds ?? ['all'])];
+    if (!segmentIds.length) invalid();
+    addressableStrip = { pixelCount: map.addressableStrip.pixelCount, segmentIds };
+   }
    const ct = map.colorTemperature;
    if (ct !== undefined && ct !== null) {
     if (!object(ct)) invalid();
@@ -101,7 +115,8 @@ export class FeitAdapter implements LightingAdapter {
    }
    const ids = [power, workMode, brightness.id, ...(this.scenes.size ? [sceneDp] : []), ...(colour ? [colour] : []), ...(temperature ? [temperature.id] : [])];
    if (new Set(ids).size !== ids.length) invalid();
-   this.entries.set(config.id, { config, power, workMode, sceneDp, brightness, colour, temperature, device: { nativeId: config.id, name: config.name, manufacturer: 'Feit Electric', model: null, address: { transport: 'lan', endpoint: config.ip }, extensions: {} } });
+   const extensions = addressableStrip ? { 'io.openlight.addressable-strip': structuredClone(addressableStrip) } : {};
+   this.entries.set(config.id, { config, power, workMode, sceneDp, brightness, colour, temperature, ...(addressableStrip ? { addressableStrip } : {}), device: { nativeId: config.id, name: config.name, manufacturer: 'Feit Electric', model: null, address: { transport: 'lan', endpoint: config.ip }, extensions } });
   }
  }
  onEvent(listener: (event: AdapterEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -124,7 +139,10 @@ export class FeitAdapter implements LightingAdapter {
  private capabilitiesOf(entry: Entry): Capability[] {
   const capabilities: Capability[] = [{ type: 'power' }, { type: 'brightness', minimum: 0, maximum: 100, step: 1 }];
   if (entry.colour) capabilities.push({ type: 'rgb' });
-  if (this.scenes.size) capabilities.push({ type: 'effects', effectIds: [...this.scenes.keys()] });
+  if (entry.addressableStrip) capabilities.push({ type: 'addressableStrip', ...entry.addressableStrip });
+  const nativeModes = entry.config.dpsMap?.addressableStrip?.nativeModes ?? [];
+  if (entry.addressableStrip && nativeModes.length) capabilities.push({ type: 'effects', effectIds: [...new Set(nativeModes)].map(mode => `tuya-strip:${mode}`) });
+  if (this.scenes.size && !entry.addressableStrip) capabilities.push({ type: 'effects', effectIds: [...this.scenes.keys()] });
   if (entry.temperature) capabilities.push({ type: 'colorTemperature', minimum: entry.temperature.minimumKelvin, maximum: entry.temperature.maximumKelvin, step: 1 });
   return structuredClone(capabilities);
  }
@@ -176,6 +194,9 @@ export class FeitAdapter implements LightingAdapter {
        return this.transport.requestSession(entry.config.ip, { version: entry.config.version, localKey: entry.config.localKey, sequence, queryPayload, ...(attempt === 0 && control ? { preceding: { payload: control.payload } } : {}) }, requestContext);
       });
       if (signal.aborted) throw new AdapterError('CANCELED', 'Feit call canceled');
+      // Some genuine 3.4 devices (including LG Curved) assign a server-side
+      // response sequence.  Each session has exactly one query outstanding and
+      // transport authentication has already completed, so correlate by command.
       if (frame.command !== queryCommand || (entry.config.version === '3.3' && frame.sequence !== querySequence)) throw new Error();
       responded = true;
       const { observation, dps } = this.parse(entry, frame.payload);
@@ -199,12 +220,18 @@ export class FeitAdapter implements LightingAdapter {
   try {
    const body = decodeQuery(payload); if (!object(body) || !object(body.dps)) throw new Error();
    const dps = body.dps; const state: DeviceState = {};
+   const pixels = dps['47'];
+   if (Number.isInteger(pixels) && (pixels as number) > 0 && (pixels as number) <= 4096 && !entry.addressableStrip) {
+    entry.addressableStrip = { pixelCount: pixels as number, segmentIds: ['all'] };
+    this.emit({ type: 'capabilities', nativeId: entry.config.id, capabilities: this.capabilitiesOf(entry) });
+   }
    if (typeof dps[entry.power] === 'boolean') state.power = dps[entry.power] as boolean;
    const brightness = dps[entry.brightness.id];
    if (within(brightness, entry.brightness)) state.brightness = Math.round((brightness - entry.brightness.minimum) * 100 / (entry.brightness.maximum - entry.brightness.minimum));
    const mode = dps[entry.workMode];
+   if (entry.addressableStrip) state.effect = (entry.config.dpsMap?.addressableStrip?.nativeModes ?? []).includes(mode as 'scene' | 'music') ? `tuya-strip:${mode}` : null;
    if (mode === 'colour' || mode === 'white') { entry.mode = mode; state.colorMode = mode === 'white' ? 'white' : 'color'; }
-   if (this.reportsEffect) {
+   if (this.reportsEffect && !entry.addressableStrip) {
     // effect is the preset currently playing, or null: no scene mode, or a scene the gateway does not know (edited/deleted preset, or set from the app). Never left unset, because the registry merges state and would keep a stale id.
     if (mode === 'scene') { const current = dps[entry.sceneDp]; const known = [...this.scenes].find(([, payload]) => payload === current); state.effect = known ? known[0] : null; }
     else if (mode === 'colour' || mode === 'white') state.effect = null;
@@ -254,7 +281,11 @@ export class FeitAdapter implements LightingAdapter {
   // the bulb white before a same-batch setColor restores the intended hue (unknown
   // mode is treated as "don't force white" too, since this adapter's devices are
   // used in colour mode far more often than white).
-  if (entry.mode !== 'white') { const observation = await this.status(entry, context); return structuredClone({ transport: 'lan', acknowledgment: 'applied', observation }); }
+  if (entry.mode !== 'white') {
+   const observation = await this.status(entry, context);
+   if (entry.addressableStrip && observation.state.rgb) return this.setColor(id, { mode: 'rgb', value: observation.state.rgb }, context);
+   return structuredClone({ transport: 'lan', acknowledgment: 'applied', observation });
+  }
   const raw = quantize(entry.brightness.minimum + percent * (entry.brightness.maximum - entry.brightness.minimum) / 100, entry.brightness);
   return this.control(entry, { [entry.workMode]: 'white', [entry.brightness.id]: raw }, context);
  }
@@ -292,6 +323,9 @@ export class FeitAdapter implements LightingAdapter {
  }
  private async startScene(id: string, effectId: string, context: CallContext): Promise<WriteReceipt> {
   const entry = this.entry(id, context); const payload = this.scenes.get(effectId);
+  const nativeMode = (entry.config.dpsMap?.addressableStrip?.nativeModes ?? []).find(mode => effectId === `tuya-strip:${mode}`);
+  if (nativeMode) return this.control(entry, { [entry.workMode]: nativeMode }, context);
+  if (entry.addressableStrip) throw new AdapterError('UNSUPPORTED_CAPABILITY', 'Native strip effects require a verified product profile');
   if (!payload) throw new AdapterError('OUT_OF_RANGE', 'Unknown Feit scene');
   // The bulb loops the scene itself: one write, no streaming. Scene mode and data go in the same message.
   return this.control(entry, { [entry.workMode]: 'scene', [entry.sceneDp]: payload }, context);

@@ -107,12 +107,12 @@ describe('Feit negotiated TCP sessions', () => {
     socket.emit('connect'); await vi.advanceTimersByTimeAsync(1001); await failed;
     expect(socket.destroy).toHaveBeenCalledOnce();
   });
-  it('accepts authenticated v3.4 device-assigned response sequence numbers', async () => {
+  it.each([7, 600])('accepts authenticated device-assigned v3.4 query response sequence %i', async responseSequence => {
     const pending = transport.requestSession('192.168.1.42', { version: '3.4', localKey, sequence: 7, queryPayload: {} }, context());
     const { key } = authenticate('3.4');
     const payload = Buffer.concat([retcode, encryptSessionPayload('3.4', { dps: { '20': true } }, key)]);
-    socket.emit('data', encodeSessionFrame('3.4', 600, DP_QUERY_NEW, payload, key));
-    await expect(pending).resolves.toMatchObject({ sequence: 600, command: DP_QUERY_NEW });
+    socket.emit('data', encodeSessionFrame('3.4', responseSequence, DP_QUERY_NEW, payload, key));
+    await expect(pending).resolves.toMatchObject({ sequence: responseSequence, command: DP_QUERY_NEW });
   });
   it('does not send CONTROL_NEW or QUERY after cancellation during FINISH flushing', async () => {
     const controller = new AbortController();

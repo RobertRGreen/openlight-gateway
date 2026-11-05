@@ -177,6 +177,11 @@ export class NodeFeitTransport implements FeitTransport {
             const response = decodeSessionFrame(version, buffered, sessionKey ?? localKey);
             buffered = Buffer.alloc(0); targetLength = headerLength;
             if (phase === 'handshake') {
+              // The LG Curved's 3.4 firmware assigns its own response sequence
+              // (rather than echoing the client's).  There is only one request
+              // in flight on this new TCP connection, and the frame's HMAC has
+              // already been verified with the local key, so command correlation
+              // is the meaningful check here.
               if (response.command !== 0x04) continue;
               if (response.payload.length < 4 || response.payload.readUInt32BE(0) !== 0) throw new Error();
               const negotiated = handshakeFinish(version, localKey, start.clientNonce, response.payload.subarray(4));
@@ -187,7 +192,7 @@ export class NodeFeitTransport implements FeitTransport {
                 const key = sessionKey!;
                 const sendQuery = () => {
                   querySequence = takeSequence();
-                  const query = encodeSessionFrame(version, querySequence, DP_QUERY_NEW, encryptSessionPayload(version, request.queryPayload, key), key);
+                  const query = encodeSessionFrame(version, querySequence, DP_QUERY_NEW, encryptSessionPayload(version, request.queryPayload, key, false), key);
                   phase = 'query'; write(query, undefined, true);
                 };
                 // Local flushing is not a device acknowledgment; only DP_QUERY_NEW verifies state.

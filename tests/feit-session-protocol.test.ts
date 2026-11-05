@@ -7,9 +7,9 @@ const client = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
 const device = Buffer.from('ffeeddccbbaa99887766554433221100', 'hex');
 const json = { dps: { '20': true, '24': { h: 120, s: 1000, v: 1000 } } };
 
-function rawEcb(bytes: Buffer, decrypt = false): Buffer {
+function rawEcb(bytes: Buffer, decrypt = false, padding = false): Buffer {
   const cipher = decrypt ? createDecipheriv('aes-128-ecb', Buffer.from(key), null) : createCipheriv('aes-128-ecb', Buffer.from(key), null);
-  cipher.setAutoPadding(false);
+  cipher.setAutoPadding(padding);
   return Buffer.concat([cipher.update(bytes), cipher.final()]);
 }
 
@@ -18,18 +18,18 @@ describe.each(['3.4', '3.5'] as const)('Tuya %s session handshake', version => {
     const start = handshakeStart(version, key, client);
     const startFrame = decodeSessionFrame(version, encodeSessionFrame(version, 1, SESS_KEY_NEG_START, start.payload, key), key);
     expect(startFrame.command).toBe(3);
-    expect(start.payload).toEqual(version === '3.4' ? encryptHandshake(version, client, key) : client);
-    expect(startFrame.payload).toEqual(start.payload);
+    expect(start.payload).toEqual(version === '3.4' ? rawEcb(client, false, true) : client);
+    expect(startFrame.payload).toEqual(version === '3.4' ? rawEcb(client, false, true) : client);
     if (version === '3.4') expect(start.payload).toHaveLength(32);
     expect(decryptHandshake(version, startFrame.payload, key)).toEqual(client);
     const responseBody = Buffer.concat([device, createHmac('sha256', key).update(client).digest()]);
-    const response = version === '3.4' ? encryptHandshake(version, responseBody, key) : responseBody;
+    const response = version === '3.4' ? rawEcb(responseBody, false, true) : responseBody;
     expect(encryptHandshake(version, responseBody, key)).toEqual(response);
     const responseFrame = decodeSessionFrame(version, encodeSessionFrame(version, 2, SESS_KEY_NEG_RESP, Buffer.concat([Buffer.alloc(4), response]), key), key);
     const finish = handshakeFinish(version, key, start.clientNonce, responseFrame.payload.subarray(4));
     expect(finish.deviceNonce).toEqual(device);
     const finishFrame = decodeSessionFrame(version, encodeSessionFrame(version, 3, SESS_KEY_NEG_FINISH, finish.payload, key), key);
-    expect(decryptHandshake(version, finishFrame.payload, key)).toEqual(createHmac('sha256', key).update(device).digest());
+    expect(version === '3.4' ? rawEcb(finishFrame.payload, true, true) : finishFrame.payload).toEqual(createHmac('sha256', key).update(device).digest());
     expect(() => handshakeFinish(version, key, Buffer.alloc(16), response)).toThrow(/authentication/);
     expect(() => handshakeFinish(version, key, client, response.subarray(1))).toThrow();
   });

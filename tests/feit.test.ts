@@ -78,6 +78,31 @@ describe('Feit manually configured Tuya adapter', () => {
   expect(await adapter.getCapabilities('bulb', context())).toHaveLength(2);
   await expect(adapter.setColor('bulb', { mode: 'rgb', value: { r: 0, g: 0, b: 0 } }, context())).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
  });
+ it('preserves a verified addressable-strip layout as a non-streaming capability', async () => {
+  const { adapter, discovered } = await setup({ ...device, dpsMap: { addressableStrip: { pixelCount: 40, segmentIds: ['left', 'right'] } } });
+  expect(await adapter.getCapabilities('bulb', context())).toContainEqual({ type: 'addressableStrip', pixelCount: 40, segmentIds: ['left', 'right'] });
+  expect(discovered[0]!.extensions).toEqual({ 'io.openlight.addressable-strip': { pixelCount: 40, segmentIds: ['left', 'right'] } });
+ });
+ it('detects physical pixels, rejects bulb presets, and actually writes standalone strip brightness', async () => {
+  const transport = new FakeTransport(); transport.dps['47'] = 40;
+  const { adapter } = await setup(device, transport);
+  adapter.setScenes({ bulbPreset: { colors: ['#ff0000'] } });
+  await adapter.getState('bulb', context());
+  expect(await adapter.getCapabilities('bulb', context())).toContainEqual({ type: 'addressableStrip', pixelCount: 40, segmentIds: ['all'] });
+  expect((await adapter.getCapabilities('bulb', context())).some(c => c.type === 'effects')).toBe(false);
+  await expect(adapter.effects.start('bulb', 'bulbPreset', context())).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
+  const receipt = await adapter.setBrightness('bulb', 37, context());
+  expect(receipt.observation?.state.brightness).toBe(37);
+  expect(transport.writes.at(-1)?.dps).toEqual({ '21': 'colour', '24': '000003e80172' });
+ });
+ it('advertises only configured native strip modes and confirms mode readback', async () => {
+  const { adapter, transport } = await setup({ ...device, dpsMap: { addressableStrip: { pixelCount: 40, nativeModes: ['scene', 'music'] } } });
+  adapter.setScenes({ bulbPreset: { colors: ['#ff0000'] } });
+  expect(await adapter.getCapabilities('bulb', context())).toContainEqual({ type: 'effects', effectIds: ['tuya-strip:scene', 'tuya-strip:music'] });
+  expect((await adapter.effects.start('bulb', 'tuya-strip:scene', context())).observation?.state.effect).toBe('tuya-strip:scene');
+  expect(transport.writes.at(-1)?.dps).toEqual({ '21': 'scene' });
+  expect((await adapter.effects.stop('bulb', context())).observation?.state.effect).toBe(null);
+ });
  it.each(['3.1', '3.2', '3.6'])('rejects protocol %s at discovery before yielding or sending', async version => {
   const transport = new FakeTransport(); const adapter = new FeitAdapter({ devices: [{ ...device, version }], transport });
   await expect(adapter.discover(context())[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY', message: expect.stringContaining(version) });
