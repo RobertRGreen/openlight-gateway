@@ -88,7 +88,7 @@ auth_config | curl --config - -X POST \
 
 None of the five mock devices advertises the `transitions` capability. Adding `transitionMs` to this command returns `422 capability_mismatch` on `/transitionMs`.
 
-A `202` response includes an Operation and `Location: /api/v1/operations/{id}`. Poll that authenticated URL for terminal results. Group results can be `partial`; a white-only device rejects RGB with `422 capability_mismatch`, and a known offline singleton returns `409 device_offline`. PATCH and DELETE require the current detail response's ETag in `If-Match`.
+A `202` response includes an Operation and `Location: /api/v1/operations/{id}`. Poll that authenticated URL for terminal results. Group results can be `partial`; a white-only device rejects RGB with `422 capability_mismatch`, and absolute state assignments recheck cached offline availability inside the queued operation. A still-unreachable target ends with `device_offline`; effects and transitions retain their offline admission rejection. PATCH and DELETE require the current detail response's ETag in `If-Match`.
 
 A native WebSocket client supplies the same Authorization header during upgrade. A browser needs an explicitly allowed Origin (for example start the server with `CORS_ORIGINS=http://localhost:8080`) and sends authentication as its first frame within five seconds:
 

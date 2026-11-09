@@ -127,7 +127,7 @@ Same 202-plus-pollable-Operation pattern. By default scene activation does not p
   {"error":{"code":"capability_mismatch","message":"Device does not support rgb","requestId":"req-28",
     "details":[{"path":"/state/rgb","code":"unsupported_capability","message":"Required capability rgb is absent","deviceId":"...","capability":"rgb"}]}}
   ```
-- **`409 device_offline`** — a known-offline single device rejects the command outright without queuing it.
+- **`device_offline`** — absolute state assignments are admitted and recheck cached offline state, with up to three bounded attempts inside the same operation. An unreachable target still fails. Effects/transitions may return HTTP409 at admission; do not automatically replay them.
 - **`422 validation_error`** — malformed/out-of-range request body; `details[]` gives per-field `path`/`code`/`message`.
 - **Partial group results** — see above; always inspect `results[]`, never trust the outer status alone.
 - **Idempotency conflicts (`409 idempotency_conflict`)** — reusing an `Idempotency-Key` with a different body. Generate a fresh key per logically distinct command, and don't blindly retry an already-admitted command past the idempotency retention window without checking the operation's actual outcome first.
