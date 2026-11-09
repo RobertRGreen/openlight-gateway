@@ -36,7 +36,7 @@ export class OperationService {
     if(!targets.length)throw new GatewayError(422,'no_eligible_targets','Target set is empty');
     if(new Set(targets.map(t=>t.deviceId)).size!==targets.length)throw new GatewayError(422,'overlapping_targets','Expanded targets overlap');
     this.assertUnreserved(targets.map(t=>t.deviceId),opts.ownerRunId);
-    const frozen=structuredClone(targets);for(const t of frozen){if(t.rejection)continue;try{const d=this.registry.get(t.deviceId);validateState(d.capabilities,t.command.state,t.deviceId,opts.requestId,t.command.transitionMs);if(d.availability==='offline')throw new GatewayError(409,'device_offline','Device is offline',[],opts.requestId);}catch(error){if(kind==='device.command')throw error;t.rejection=publicError(error,opts.requestId);}}
+    const frozen=structuredClone(targets);for(const t of frozen){if(t.rejection)continue;try{const d=this.registry.get(t.deviceId);validateState(d.capabilities,t.command.state,t.deviceId,opts.requestId,t.command.transitionMs);if(d.availability==='offline'&&!this.isAssignment(t,opts))throw new GatewayError(409,'device_offline','Device is offline',[],opts.requestId);}catch(error){if(kind==='device.command')throw error;t.rejection=publicError(error,opts.requestId);}}
     if(frozen.every(t=>t.rejection))throw new GatewayError(422,'no_eligible_targets','No target can execute',frozen.flatMap(t=>t.rejection?.details.length?t.rejection.details:[{path:'/state',code:t.rejection?.code??'failed',message:t.rejection?.message??'Failed',deviceId:t.deviceId}]),opts.requestId);
     const operation:Operation={id:randomUUID(),kind,status:'queued',createdAt:new Date().toISOString(),completedAt:null,request:structuredClone(request),targetDeviceIds:frozen.map(t=>t.deviceId),results:[]};
     this.store.saveOperation(operation);
@@ -46,6 +46,10 @@ export class OperationService {
   private serial<T>(id:string,fn:()=>Promise<T>):Promise<T>{const work=(this.tails.get(id)??Promise.resolve()).catch(()=>undefined).then(fn);this.tails.set(id,work);void work.finally(()=>{if(this.tails.get(id)===work)this.tails.delete(id);}).catch(()=>undefined);return work;}
   private finish(operation:Operation):Operation {const successes=operation.results.filter(r=>r.status!=='failed').length;operation.status=successes===0?'failed':operation.results.every(r=>r.status==='succeeded')?'succeeded':'partial';operation.completedAt=new Date().toISOString();this.store.saveOperation(operation);this.bus.publish('operation.completed',{type:'operation',id:operation.id},{operation:structuredClone(operation)},operation.id);return operation;}
   executeFrame(target:PreparedTarget,operationId:string,opts:SubmitOptions={}):Promise<DeviceResult>{return this.serial(target.deviceId,()=>this.execute(target,operationId,opts));}
+  private isAssignment(target:PreparedTarget,opts:SubmitOptions):boolean {
+    const {state,transitionMs}=target.command;
+    return !opts.ownerRunId&&transitionMs===undefined&&state.effect===undefined&&!state.segments;
+  }
   async execute(target:PreparedTarget,operationId:string,opts:SubmitOptions={}):Promise<DeviceResult> {
     // Retry absolute assignments inside the original per-device serial queue.
     // Never replay effects, animation frames or transitions as a generic retry.
@@ -55,7 +59,7 @@ export class OperationService {
     const deadline=new AbortController();
     const timer=setTimeout(()=>deadline.abort(),this.options.retryTimeoutMs??45000);
     const signal=opts.signal?AbortSignal.any([opts.signal,deadline.signal]):deadline.signal;
-    const transient=new Set(['rate_limited','adapter_timeout','transport_error','state_mismatch']);
+    const transient=new Set(['rate_limited','adapter_timeout','transport_error','state_mismatch','device_offline']);
     let result:DeviceResult=rejected(target.deviceId,publicError(new AdapterError('CANCELED','Canceled'),opts.requestId));
     try {
       for(let attempt=1;attempt<=3;attempt++) {
@@ -78,8 +82,10 @@ export class OperationService {
       if(opts.signal?.aborted)throw new AdapterError('CANCELED','Canceled');
       const {device,adapter,nativeId}=this.registry.resolve(target.deviceId);const {state,transitionMs}=target.command;
       validateState(device.capabilities,state,device.id,opts.requestId,transitionMs);
-      if(device.availability==='offline')throw new GatewayError(409,'device_offline','Device is offline',[],opts.requestId);
-      if(device.availability==='unknown'){await this.registry.refresh(device.id);if(this.registry.get(device.id).availability!=='online')throw new GatewayError(409,'device_offline','Device could not be reached',[],opts.requestId);}
+      if(device.availability==='offline'&&!this.isAssignment(target,opts))throw new GatewayError(409,'device_offline','Device is offline',[],opts.requestId);
+      // Availability is a cached observation, not a permanent write prohibition.
+      // Recheck inside the same serial operation before an absolute assignment.
+      if(device.availability==='unknown'||device.availability==='offline'){await this.registry.refresh(device.id);if(this.registry.get(device.id).availability!=='online')throw new GatewayError(409,'device_offline',device.availability==='offline'?'Device is offline':'Device could not be reached',[],opts.requestId);}
       this.registry.desired(device.id,state,operationId);
       const unavailableCapability=(capability:string,path:string)=>new GatewayError(422,'capability_mismatch',`Device does not support ${capability}`,[{path,code:'unsupported_capability',message:`Required capability ${capability} is absent`,deviceId:device.id,capability}],opts.requestId);
       const calls:{paths:string[];call:(ctx:CallContext)=>Promise<WriteReceipt>}[]=[];

@@ -136,7 +136,7 @@ it('keeps a core write unconfirmed when query DPS disagree with CONTROL', async 
   expect(result.results[0]?.fieldResults).toContainEqual({ path: '/power', status: 'unconfirmed' });
   expect(result.results[0]?.error?.code).toBe('adapter_timeout');
   expect(gateway.registry.get(bulb.id).state.power).toBe(true);
-  expect(transport.controls).toEqual([{ '20': false }]);
+  expect(transport.controls).toEqual(Array(3).fill({ '20': false }));
 });
 
 it('keeps a core write unconfirmed when the verification query never replies', async () => {

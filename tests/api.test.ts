@@ -94,9 +94,10 @@ describe('mock-backed HTTP contract', () => {
     expect(response.json().error.details).toEqual([{ path: '/state/rgb', code: 'unsupported_capability', message: 'Required capability rgb is absent', deviceId: id, capability: 'rgb' }]);
   });
 
-  it('rejects an offline singleton and retains all outcomes for a partial group', async () => {
+  it('rechecks an offline singleton and retains all outcomes for a partial group', async () => {
     const onlineId = device('white').id, offlineId = device('offline').id;
-    errorEnvelope(await request('POST', `/devices/${offlineId}/commands`, { state: { power: true } }), 409, 'device_offline');
+    const offline = await terminal(await request('POST', `/devices/${offlineId}/commands`, { state: { power: true } }));
+    expect(offline).toMatchObject({status:'failed',results:[{deviceId:offlineId,error:{code:'device_offline'}}]});
     const group = await request('POST', '/groups', { name: 'Mixed availability', deviceIds: [onlineId, offlineId] });
     expect(group.statusCode).toBe(201);
     const operation = await terminal(await request('POST', `/groups/${group.json().id}/commands`, { state: { power: true } }));

@@ -45,3 +45,26 @@ it('cancellation interrupts retry backoff without another write',async()=>{
  const done=await service.wait(service.submitCommand({type:'device',id},{power:true},{signal:controller.signal}).id);
  expect(done.status).toBe('failed');expect(writes).toBe(1);
 });
+
+it('retries a temporary TCP disconnect after the adapter marks the bulb offline',async()=>{
+ const adapter=runtime.get('mock'),original=adapter.setPower.bind(adapter);let writes=0;
+ adapter.setPower=async(...args)=>{if(++writes===1){registry.availability(id,'offline','temporary_disconnect');throw new AdapterError('OFFLINE','connection dropped',true,'unknown');}return original(...args);};
+ const done=await service.wait(service.submitCommand({type:'device',id},{power:true}).id);
+ expect(done.status).toBe('succeeded');expect(writes).toBe(2);expect(done.results[0]?.confirmation).toBe('observed');
+ expect(store.listOperations()).toHaveLength(1);
+});
+it('a stale offline poll does not block an otherwise reachable bulb assignment',async()=>{
+ registry.availability(id,'offline','poll_failed');
+ const done=await service.wait(service.submitCommand({type:'device',id},{power:true}).id);
+ expect(done.status).toBe('succeeded');expect(registry.get(id).availability).toBe('online');
+});
+
+it('a late failed background poll cannot mark a freshly observed bulb offline',async()=>{
+ let fail!:(error:unknown)=>void;let entered!:()=>void;
+ const reading=new Promise<void>(resolve=>{entered=resolve;});
+ runtime.get('mock').getState=async()=>{entered();return new Promise((_,reject)=>{fail=reject;});};
+ const pending=registry.refresh(id);await reading;
+ registry.observe(id,{state:{power:true},observedAt:new Date().toISOString(),complete:true,nativeSequence:'99999'});
+ fail(new AdapterError('OFFLINE','old poll disconnected',true));await pending;
+ expect(registry.get(id).availability).toBe('online');expect(registry.get(id).stateStale).toBe(false);
+});
