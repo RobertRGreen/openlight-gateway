@@ -104,7 +104,7 @@ describe('mock-backed HTTP contract', () => {
     expect(operation).toMatchObject({ kind: 'group.command', status: 'partial', targetDeviceIds: [onlineId, offlineId], request: { state: { power: true } }, completedAt: expect.any(String) });
     expect(operation.results).toEqual([
       expect.objectContaining({ deviceId: onlineId, status: 'succeeded', confirmation: 'observed', transport: 'mock', fallback: null, fieldResults: [{ path: '/power', status: 'applied' }], warnings: [] }),
-      { deviceId: offlineId, status: 'failed', confirmation: 'unconfirmed', warnings: [], transport: null, fallback: null, fieldResults: [], error: { code: 'device_offline', message: 'Device is offline', requestId: expect.any(String), details: [] } },
+      { deviceId: offlineId, status: 'failed', confirmation: 'unconfirmed', warnings: [], transport: 'mock', fallback: null, fieldResults: [{path:'/power',status:'failed'}], state: {}, error: { code: 'device_offline', message: 'Adapter command failed', requestId: expect.any(String), details: [] } },
     ]);
   });
 

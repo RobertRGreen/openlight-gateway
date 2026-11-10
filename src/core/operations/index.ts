@@ -83,9 +83,10 @@ export class OperationService {
       const {device,adapter,nativeId}=this.registry.resolve(target.deviceId);const {state,transitionMs}=target.command;
       validateState(device.capabilities,state,device.id,opts.requestId,transitionMs);
       if(device.availability==='offline'&&!this.isAssignment(target,opts))throw new GatewayError(409,'device_offline','Device is offline',[],opts.requestId);
-      // Availability is a cached observation, not a permanent write prohibition.
-      // Recheck inside the same serial operation before an absolute assignment.
-      if(device.availability==='unknown'||device.availability==='offline'){await this.registry.refresh(device.id);if(this.registry.get(device.id).availability!=='online')throw new GatewayError(409,'device_offline',device.availability==='offline'?'Device is offline':'Device could not be reached',[],opts.requestId);}
+      // A verified absolute write is itself a reachability check. Do not gate it
+      // on another polling request: that extra request can starve behind offline
+      // neighbours, especially while applying a whole-house scene.
+      if((device.availability==='unknown'||device.availability==='offline')&&!this.isAssignment(target,opts)){await this.registry.refresh(device.id,{priority:'control',queueTimeoutMs:30000,...(opts.signal?{signal:opts.signal}:{})});if(this.registry.get(device.id).availability!=='online')throw new GatewayError(409,'device_offline','Device could not be reached',[],opts.requestId);}
       this.registry.desired(device.id,state,operationId);
       const unavailableCapability=(capability:string,path:string)=>new GatewayError(422,'capability_mismatch',`Device does not support ${capability}`,[{path,code:'unsupported_capability',message:`Required capability ${capability} is absent`,deviceId:device.id,capability}],opts.requestId);
       const calls:{paths:string[];call:(ctx:CallContext)=>Promise<WriteReceipt>}[]=[];
@@ -101,7 +102,7 @@ export class OperationService {
         if(state.segments){if(!adapter.segments)throw unavailableCapability('segments','/state/segments');calls.push({paths:['/segments'],call:ctx=>adapter.segments!.apply(nativeId,state.segments!,ctx)});}
       }
       const observations:DeviceState={};
-      for(const call of calls){try{if(opts.signal?.aborted)throw new AdapterError('CANCELED','Canceled');const receipt=await this.runtime.call(adapter.id,operationId,nativeId,call.call,opts.signal?{signal:opts.signal}:{});result.transport=receipt.transport;result.confirmation='acknowledged';for(const path of call.paths)result.fieldResults.push({path,status:'applied'});if(receipt.observation){this.registry.observe(device.id,receipt.observation,operationId);Object.assign(observations,receipt.observation.state);}this.registry.completeWrite(device.id);}catch(error){result.transport??=device.address?.transport??null;if(error instanceof AdapterError&&error.delivery==='unknown')result.confirmation='unconfirmed';for(const path of call.paths)result.fieldResults.push({path,status:error instanceof AdapterError&&error.delivery==='unknown'?'unconfirmed':'failed'});throw error;}}
+      for(const call of calls){try{if(opts.signal?.aborted)throw new AdapterError('CANCELED','Canceled');const receipt=await this.runtime.call(adapter.id,operationId,nativeId,call.call,{...(!opts.ownerRunId?{priority:'control' as const,queueTimeoutMs:30000}:{}),...(opts.signal?{signal:opts.signal}:{})});result.transport=receipt.transport;result.confirmation='acknowledged';for(const path of call.paths)result.fieldResults.push({path,status:'applied'});if(receipt.observation){this.registry.observe(device.id,receipt.observation,operationId);Object.assign(observations,receipt.observation.state);}this.registry.completeWrite(device.id);}catch(error){result.transport??=device.address?.transport??null;if(error instanceof AdapterError&&error.delivery==='unknown')result.confirmation='unconfirmed';for(const path of call.paths)result.fieldResults.push({path,status:error instanceof AdapterError&&error.delivery==='unknown'?'unconfirmed':'failed'});throw error;}}
       const fieldMatches=(key:string,actual:unknown,expected:unknown):boolean=>{
         if(key!=='rgb'&&key!=='rgbw'&&key!=='rgbww')return isDeepStrictEqual(actual,expected);
         if(!actual||!expected||typeof actual!=='object'||typeof expected!=='object'||Array.isArray(actual)||Array.isArray(expected))return false;
@@ -112,7 +113,7 @@ export class OperationService {
       const modeWrong=(actual:DeviceState)=>expectedMode!==undefined&&actual.colorMode!==undefined&&actual.colorMode!==expectedMode;
       const matches=(actual:DeviceState)=>!modeWrong(actual)&&Object.entries(state).every(([key,value])=>fieldMatches(key,actual[key as keyof DeviceState],value));
       if(matches(observations))result.confirmation='observed';else {
-        await this.registry.refresh(device.id);const actual=this.registry.get(device.id);
+        await this.registry.refresh(device.id,{priority:'control',queueTimeoutMs:30000,...(opts.signal?{signal:opts.signal}:{})});const actual=this.registry.get(device.id);
         if(!actual.stateStale&&matches(actual.state))result.confirmation='observed';
         else if(!actual.stateStale&&(modeWrong(actual.state)||Object.entries(state).some(([key,value])=>key in actual.state&&!fieldMatches(key,actual.state[key as keyof DeviceState],value))))throw new GatewayError(409,'state_mismatch','Observed state differs from requested state',[],opts.requestId);
       }

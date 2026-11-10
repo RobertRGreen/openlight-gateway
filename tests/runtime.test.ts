@@ -79,3 +79,26 @@ describe('adapter failure containment and recovery',()=>{
   expect(connect).toHaveBeenCalledTimes(1);await runtime.close();
  });
 });
+
+describe('bulb command admission under polling load',()=>{
+ const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+ function setup(){const runtime=new AdapterRuntime(new DomainBus(randomUUID()),undefined,{timeoutMs:100});const adapter=new MockAdapter({latencyMs:0});Object.assign(adapter.scheduling,{minUpdateIntervalMs:0,budgets:[{scope:'adapter',key:'bulb-tcp',maxRequests:1000,windowMs:1000,burst:1000,maxConcurrent:1}]});runtime.register(adapter);return{runtime,adapter};}
+ it('gives a reachable bulb its full I/O deadline after another bulb used the slot',async()=>{
+  const{runtime,adapter}=setup();await runtime.connect(adapter.id);let entered!:()=>void;const started=new Promise<void>(r=>entered=r);
+  const slow=runtime.call(adapter.id,'offline-poll','unreachable',async()=>{entered();await sleep(75);});await started;
+  const command=runtime.call(adapter.id,'scene','reachable',async context=>{expect(context.deadlineAt-Date.now()).toBeGreaterThan(80);await sleep(60);return 'observed';},{queueTimeoutMs:500});
+  try{await expect(command).resolves.toBe('observed');await slow;}finally{await runtime.close();}
+ });
+ it('admits a waiting scene command before a later background probe without preempting an in-flight call',async()=>{
+  const{runtime,adapter}=setup();await runtime.connect(adapter.id);let release!:()=>void,entered!:()=>void;const started=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r),seen:string[]=[];
+  const first=runtime.call(adapter.id,'poll-running','offline',async()=>{entered();await gate;});await started;
+  const poll=runtime.call(adapter.id,'poll-waiting','other-offline',async()=>{seen.push('poll');},{priority:'background',queueTimeoutMs:500});
+  const command=runtime.call(adapter.id,'scene','reachable',async()=>{seen.push('command');},{priority:'control',queueTimeoutMs:500});
+  await sleep(10);release();try{await Promise.all([first,poll,command]);expect(seen).toEqual(['command','poll']);}finally{await runtime.close();}
+ });
+ it('reports an expired queue as not sent without claiming that bulb lost connectivity',async()=>{
+  const{runtime,adapter}=setup();await runtime.connect(adapter.id);let entered!:()=>void;const started=new Promise<void>(r=>entered=r),events:AdapterEvent[]=[];runtime.onEvent((_,e)=>events.push(e));
+  const first=runtime.call(adapter.id,'poll','offline',async()=>{entered();await sleep(70);});await started;let sent=false;
+  try{await expect(runtime.call(adapter.id,'scene','reachable',async()=>{sent=true;},{queueTimeoutMs:10})).rejects.toMatchObject({code:'TIMEOUT',delivery:'not_sent'});await first;expect(sent).toBe(false);expect(events.filter(e=>e.type==='availability')).toEqual([]);}finally{await runtime.close();}
+ });
+});
